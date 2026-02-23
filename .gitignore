@@ -1,0 +1,35 @@
+# binaries
+*.exe
+*.out
+*.test
+*.dll
+*.so
+*.dylib
+newapi-modern-dashboard
+newapi-modern-dashboard.exe
+
+# build artifacts
+/dist/
+/build/
+
+# logs
+*.log
+
+# coverage
+*.cover
+coverage.out
+
+# ide
+.vscode/
+.idea/
+*.code-workspace
+
+# os files
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# temp files
+*.tmp
+*.temp
