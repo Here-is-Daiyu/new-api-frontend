@@ -3,7 +3,8 @@
 
   const STORAGE_KEYS = {
     baseURL: 'newapi.base_url',
-    theme: 'newapi.theme'
+    theme: 'newapi.theme',
+    apiUserId: 'newapi.api_user_id'
   }
 
   const TOKEN_STATUS_TEXT = {
@@ -34,6 +35,7 @@
     version: 'dev',
     defaultBaseURL: '',
     baseURL: '',
+    apiUserId: '',
     user: null,
     alertTimer: null,
     token: {
@@ -85,6 +87,7 @@
     syncTokenQuotaInputState()
     await loadServerConfig()
     initBaseURL()
+    initApiUserId()
     await tryRestoreSession()
   }
 
@@ -204,7 +207,7 @@
   }
 
   function initTheme() {
-    const savedTheme = localStorage.getItem(STORAGE_KEYS.theme)
+    const savedTheme = safeStorageGet(STORAGE_KEYS.theme)
     const nextTheme = savedTheme === 'light' ? 'light' : 'dark'
     applyTheme(nextTheme)
   }
@@ -217,7 +220,7 @@
 
   function applyTheme(theme) {
     dom.html.setAttribute('data-theme', theme)
-    localStorage.setItem(STORAGE_KEYS.theme, theme)
+    safeStorageSet(STORAGE_KEYS.theme, theme)
     dom.themeToggleBtn.textContent = theme === 'dark' ? '切换亮色' : '切换暗色'
   }
 
@@ -238,13 +241,13 @@
   }
 
   function initBaseURL() {
-    const saved = (localStorage.getItem(STORAGE_KEYS.baseURL) || '').trim()
+    const saved = (safeStorageGet(STORAGE_KEYS.baseURL) || '').trim()
 
     if (saved) {
       try {
         state.baseURL = normalizeBaseURL(saved)
       } catch {
-        localStorage.removeItem(STORAGE_KEYS.baseURL)
+        safeStorageRemove(STORAGE_KEYS.baseURL)
       }
     }
 
@@ -261,7 +264,7 @@
       if (!inputValue) {
         if (state.defaultBaseURL) {
           state.baseURL = state.defaultBaseURL
-          localStorage.removeItem(STORAGE_KEYS.baseURL)
+          safeStorageRemove(STORAGE_KEYS.baseURL)
           dom.baseUrlInput.value = state.baseURL
           showAlert('已恢复为默认 BaseURL', 'info')
           return
@@ -272,7 +275,7 @@
       const normalized = normalizeBaseURL(inputValue)
       state.baseURL = normalized
       dom.baseUrlInput.value = normalized
-      localStorage.setItem(STORAGE_KEYS.baseURL, normalized)
+      safeStorageSet(STORAGE_KEYS.baseURL, normalized)
       showAlert('BaseURL 保存成功', 'success')
     } catch (err) {
       showAlert(err.message || 'BaseURL 无效', 'error', 0)
@@ -344,6 +347,11 @@
         return
       }
 
+      const loginUserId = toNonNegativeInt(data?.id, 0)
+      if (loginUserId > 0) {
+        setApiUserId(loginUserId)
+      }
+
       await fetchSelf(false)
       dom.passwordInput.value = ''
       showLoggedInState()
@@ -374,6 +382,7 @@
       setButtonLoading(dom.logoutBtn, true, '退出中...')
       await apiRequest('/api/user/logout')
       state.user = null
+      clearApiUserId()
       showLoggedOutState()
       showAlert('已退出登录', 'info')
     } catch (err) {
@@ -387,10 +396,15 @@
     try {
       const data = await apiRequest('/api/user/self')
       state.user = data || null
+      setApiUserId(data?.id)
       updateUserInfo()
       return data
     } catch (err) {
       state.user = null
+      const msg = String(err?.message || '')
+      if (msg.includes('New-Api-User')) {
+        clearApiUserId()
+      }
       updateUserInfo()
       if (!silent) {
         throw err
@@ -1069,6 +1083,10 @@
       'X-Base-URL': baseURL
     }
 
+    if (state.apiUserId) {
+      headers['New-Api-User'] = state.apiUserId
+    }
+
     const requestInit = {
       method,
       headers,
@@ -1125,12 +1143,32 @@
     const normalized = normalizeBaseURL(inputValue)
     state.baseURL = normalized
     dom.baseUrlInput.value = normalized
-    localStorage.setItem(STORAGE_KEYS.baseURL, normalized)
+    safeStorageSet(STORAGE_KEYS.baseURL, normalized)
     return normalized
   }
 
   function getActiveBaseURL() {
     return syncBaseURLFromInput()
+  }
+
+  function initApiUserId() {
+    const saved = safeStorageGet(STORAGE_KEYS.apiUserId)
+    const parsed = toNonNegativeInt(saved, 0)
+    state.apiUserId = parsed > 0 ? String(parsed) : ''
+  }
+
+  function setApiUserId(id) {
+    const parsed = toNonNegativeInt(id, 0)
+    if (parsed <= 0) {
+      return
+    }
+    state.apiUserId = String(parsed)
+    safeStorageSet(STORAGE_KEYS.apiUserId, state.apiUserId)
+  }
+
+  function clearApiUserId() {
+    state.apiUserId = ''
+    safeStorageRemove(STORAGE_KEYS.apiUserId)
   }
 
   function normalizeBaseURL(raw) {
@@ -1304,6 +1342,30 @@
 
   function pad2(value) {
     return String(value).padStart(2, '0')
+  }
+
+  function safeStorageGet(key) {
+    try {
+      return window.localStorage.getItem(key)
+    } catch {
+      return null
+    }
+  }
+
+  function safeStorageSet(key, value) {
+    try {
+      window.localStorage.setItem(key, String(value))
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  function safeStorageRemove(key) {
+    try {
+      window.localStorage.removeItem(key)
+    } catch {
+      // ignore storage errors
+    }
   }
 
   async function safeParseJSON(response) {
