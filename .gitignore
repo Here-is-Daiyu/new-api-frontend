@@ -5,6 +5,7 @@
 *.dll
 *.so
 *.dylib
+*.zip
 newapi-modern-dashboard
 newapi-modern-dashboard.exe
 
