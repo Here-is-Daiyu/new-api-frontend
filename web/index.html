@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>New API 现代化前端</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>New API 现代化前端</h1>
+      <p>轻量单二进制 · 低资源占用</p>
+    </div>
+    <div class="top-actions">
+      <button id="themeToggleBtn" class="btn ghost" type="button">切换主题</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <h2>连接配置</h2>
+      <div class="grid grid-3">
+        <label>
+          <span>BaseURL</span>
+          <input id="baseUrlInput" type="text" placeholder="例如：https://newapi.example.com" />
+        </label>
+        <div class="align-end">
+          <button id="saveBaseUrlBtn" class="btn" type="button">保存 BaseURL</button>
+        </div>
+        <div class="align-end">
+          <small id="versionText">版本：-</small>
+        </div>
+      </div>
+      <small class="hint">所有请求将通过本地 <code>/proxy</code> 转发并携带 Cookie 会话</small>
+    </section>
+
+    <section id="alertBox" class="alert hidden" role="alert"></section>
+
+    <section id="loginCard" class="card">
+      <h2>登录</h2>
+      <form id="loginForm" class="grid grid-2">
+        <label>
+          <span>用户名 / 邮箱</span>
+          <input id="usernameInput" type="text" autocomplete="username" required />
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="passwordInput" type="password" autocomplete="current-password" required />
+        </label>
+        <div class="form-actions col-span-2">
+          <button id="loginBtn" class="btn" type="submit">登录</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="dashboard" class="hidden">
+      <section class="card">
+        <div class="row space-between">
+          <div>
+            <h2>当前会话</h2>
+            <p id="userInfoText">未登录</p>
+          </div>
+          <div>
+            <button id="refreshSelfBtn" class="btn ghost" type="button">刷新会话</button>
+            <button id="logoutBtn" class="btn danger" type="button">退出登录</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="tabs">
+        <button class="tab-btn active" data-tab="tokenPanel" type="button">Token 管理</button>
+        <button class="tab-btn" data-tab="logPanel" type="button">日志查看</button>
+      </section>
+
+      <section id="tokenPanel" class="card tab-panel">
+        <div class="row space-between">
+          <h2>Token 管理</h2>
+          <div>
+            <button id="createTokenBtn" class="btn" type="button">新建 Token</button>
+            <button id="refreshTokenBtn" class="btn ghost" type="button">刷新</button>
+          </div>
+        </div>
+
+        <form id="tokenFilterForm" class="grid grid-4 compact-form">
+          <label>
+            <span>关键字（名称）</span>
+            <input id="tokenKeywordInput" type="text" placeholder="支持精确或 LIKE" />
+          </label>
+          <label>
+            <span>页大小</span>
+            <select id="tokenPageSizeSelect">
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+          <div class="align-end">
+            <button class="btn" type="submit">查询</button>
+          </div>
+          <div class="align-end">
+            <button id="tokenFilterResetBtn" class="btn ghost" type="button">重置</button>
+          </div>
+        </form>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>名称</th>
+                <th>Key（完整）</th>
+                <th>状态</th>
+                <th>额度</th>
+                <th>过期时间</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="tokenTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="pager">
+          <button id="tokenPrevBtn" class="btn ghost" type="button">上一页</button>
+          <span id="tokenPagerText">第 1 页</span>
+          <button id="tokenNextBtn" class="btn ghost" type="button">下一页</button>
+        </div>
+      </section>
+
+      <section id="logPanel" class="card tab-panel hidden">
+        <div class="row space-between">
+          <h2>日志查看</h2>
+          <button id="refreshLogBtn" class="btn ghost" type="button">刷新</button>
+        </div>
+
+        <form id="logFilterForm" class="grid grid-4 compact-form">
+          <label>
+            <span>日志类型</span>
+            <select id="logTypeSelect">
+              <option value="0">全部</option>
+              <option value="2">消费</option>
+              <option value="5">错误</option>
+              <option value="1">充值</option>
+              <option value="3">管理</option>
+              <option value="4">系统</option>
+              <option value="6">退款</option>
+            </select>
+          </label>
+          <label>
+            <span>模型名</span>
+            <input id="logModelInput" type="text" placeholder="例如 gpt-4o" />
+          </label>
+          <label>
+            <span>Token 名称</span>
+            <input id="logTokenNameInput" type="text" />
+          </label>
+          <label>
+            <span>请求 ID</span>
+            <input id="logRequestIdInput" type="text" />
+          </label>
+          <label>
+            <span>开始时间</span>
+            <input id="logStartInput" type="datetime-local" />
+          </label>
+          <label>
+            <span>结束时间</span>
+            <input id="logEndInput" type="datetime-local" />
+          </label>
+          <label>
+            <span>分组</span>
+            <input id="logGroupInput" type="text" placeholder="可选" />
+          </label>
+          <label>
+            <span>页大小</span>
+            <select id="logPageSizeSelect">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="50">50</option>
+            </select>
+          </label>
+
+          <div class="align-end">
+            <button class="btn" type="submit">查询</button>
+          </div>
+          <div class="align-end">
+            <button id="logFilterResetBtn" class="btn ghost" type="button">重置</button>
+          </div>
+        </form>
+
+        <div class="stats" id="logStatBox">
+          <div>总消耗额度：<strong id="statQuota">0</strong></div>
+          <div>最近 RPM：<strong id="statRpm">0</strong></div>
+          <div>最近 TPM：<strong id="statTpm">0</strong></div>
+        </div>
+
+        <div class="table-wrap" id="logTableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>时间</th>
+                <th>类型</th>
+                <th>模型</th>
+                <th>Token</th>
+                <th>额度</th>
+                <th>Prompt</th>
+                <th>Completion</th>
+                <th>耗时(s)</th>
+                <th>请求ID</th>
+                <th>内容</th>
+              </tr>
+            </thead>
+            <tbody id="logTableBody"></tbody>
+          </table>
+        </div>
+
+        <div id="logLoadState" class="log-load-state hint">滚动到底部自动加载更多</div>
+      </section>
+    </section>
+  </main>
+
+  <div id="tokenModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="row space-between">
+        <h3 id="tokenModalTitle">新建 Token</h3>
+        <button id="closeTokenModalBtn" class="btn ghost" type="button">关闭</button>
+      </div>
+
+      <form id="tokenForm" class="grid grid-2">
+        <input id="tokenIdInput" type="hidden" />
+
+        <label>
+          <span>名称</span>
+          <input id="tokenNameInput" type="text" maxlength="50" required />
+        </label>
+
+        <label>
+          <span>状态（仅编辑时有效）</span>
+          <select id="tokenStatusSelect">
+            <option value="1">启用</option>
+            <option value="2">禁用</option>
+            <option value="3">过期</option>
+            <option value="4">耗尽</option>
+          </select>
+        </label>
+
+        <label>
+          <span>额度（remain_quota）</span>
+          <input id="tokenQuotaInput" type="number" min="0" step="1" value="0" required />
+        </label>
+
+        <label>
+          <span>过期时间</span>
+          <input id="tokenExpireInput" type="datetime-local" />
+          <small class="hint">留空表示永不过期（-1）</small>
+        </label>
+
+        <label class="switch-line">
+          <input id="tokenUnlimitedInput" type="checkbox" />
+          <span>无限额度</span>
+        </label>
+
+        <label class="switch-line">
+          <input id="tokenModelLimitEnabledInput" type="checkbox" />
+          <span>启用模型限制</span>
+        </label>
+
+        <label class="col-span-2">
+          <span>模型限制（model_limits，英文逗号分隔）</span>
+          <textarea id="tokenModelLimitsInput" rows="2" placeholder="gpt-4o,gpt-4.1-mini"></textarea>
+        </label>
+
+        <label class="col-span-2">
+          <span>IP 限制（allow_ips）</span>
+          <textarea id="tokenAllowIpsInput" rows="2" placeholder="每行一个IP，可留空"></textarea>
+        </label>
+
+        <label>
+          <span>分组（group）</span>
+          <input id="tokenGroupInput" type="text" />
+        </label>
+
+        <label class="switch-line">
+          <input id="tokenCrossGroupRetryInput" type="checkbox" />
+          <span>跨分组重试</span>
+        </label>
+
+        <div class="form-actions col-span-2">
+          <button id="saveTokenBtn" class="btn" type="submit">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
