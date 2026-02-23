@@ -24,6 +24,17 @@
     6: '退款'
   }
 
+  const LOG_TYPE_COLORS = {
+    1: 'success',
+    2: 'primary',
+    3: 'warning',
+    4: 'info',
+    5: 'danger',
+    6: 'warning'
+  }
+
+  const LOG_PREFETCH_REMAINING_ROWS = 20
+
   const ROLE_TEXT = {
     0: '访客',
     1: '普通用户',
@@ -125,6 +136,7 @@
     dom.tokenPrevBtn = document.getElementById('tokenPrevBtn')
     dom.tokenNextBtn = document.getElementById('tokenNextBtn')
     dom.tokenPagerText = document.getElementById('tokenPagerText')
+    dom.tokenTotalBadge = document.getElementById('tokenTotalBadge')
 
     dom.logPanel = document.getElementById('logPanel')
     dom.refreshLogBtn = document.getElementById('refreshLogBtn')
@@ -176,7 +188,9 @@
     })
 
     dom.createTokenBtn.addEventListener('click', openCreateTokenModal)
-    dom.refreshTokenBtn.addEventListener('click', () => loadTokens(true))
+    dom.refreshTokenBtn.addEventListener('click', () => {
+      void loadTokens(true).catch(() => {})
+    })
     dom.tokenFilterForm.addEventListener('submit', handleTokenFilter)
     dom.tokenFilterResetBtn.addEventListener('click', handleTokenFilterReset)
     dom.tokenPrevBtn.addEventListener('click', handleTokenPrev)
@@ -221,7 +235,19 @@
   function applyTheme(theme) {
     dom.html.setAttribute('data-theme', theme)
     safeStorageSet(STORAGE_KEYS.theme, theme)
-    dom.themeToggleBtn.textContent = theme === 'dark' ? '切换亮色' : '切换暗色'
+
+    const sunIcon = dom.themeToggleBtn.querySelector('.icon-sun')
+    const moonIcon = dom.themeToggleBtn.querySelector('.icon-moon')
+
+    if (sunIcon && moonIcon) {
+      if (theme === 'dark') {
+        sunIcon.classList.remove('hidden')
+        moonIcon.classList.add('hidden')
+      } else {
+        sunIcon.classList.add('hidden')
+        moonIcon.classList.remove('hidden')
+      }
+    }
   }
 
   async function loadServerConfig() {
@@ -320,7 +346,14 @@
     const roleName = ROLE_TEXT[state.user.role] || `角色${state.user.role}`
     const group = state.user.group || '-'
     const quota = typeof state.user.quota === 'number' ? state.user.quota : '-'
-    dom.userInfoText.textContent = `用户：${state.user.username} | 角色：${roleName} | 分组：${group} | 额度：${quota}`
+    dom.userInfoText.innerHTML = `
+      <div class="user-name">${escapeHtml(state.user.username)}</div>
+      <div class="user-badges">
+        <span class="badge-role">${roleName}</span>
+        <span class="badge-group">${escapeHtml(group)}</span>
+        <span class="badge-quota">额度 ${quota}</span>
+      </div>
+    `
   }
 
   async function handleLogin(event) {
@@ -419,7 +452,9 @@
     })
 
     dom.tabPanels.forEach((panel) => {
-      panel.classList.toggle('hidden', panel.id !== panelId)
+      const isActive = panel.id === panelId
+      panel.classList.toggle('hidden', !isActive)
+      panel.classList.toggle('show', isActive)
     })
   }
 
@@ -428,7 +463,7 @@
     state.token.keyword = dom.tokenKeywordInput.value.trim()
     state.token.pageSize = toPositiveInt(dom.tokenPageSizeSelect.value, 10)
     state.token.page = 1
-    loadTokens(true)
+    void loadTokens(true).catch(() => {})
   }
 
   function handleTokenFilterReset() {
@@ -437,7 +472,7 @@
     state.token.keyword = ''
     state.token.pageSize = 10
     state.token.page = 1
-    loadTokens(true)
+    void loadTokens(true).catch(() => {})
   }
 
   function handleTokenPrev() {
@@ -445,7 +480,7 @@
       return
     }
     state.token.page -= 1
-    loadTokens(true)
+    void loadTokens(true).catch(() => {})
   }
 
   function handleTokenNext() {
@@ -454,7 +489,7 @@
       return
     }
     state.token.page += 1
-    loadTokens(true)
+    void loadTokens(true).catch(() => {})
   }
 
   async function loadTokens(showError) {
@@ -472,6 +507,9 @@
 
       const pageData = await apiRequest(path, { query })
       state.token.total = toNonNegativeInt(pageData?.total, 0)
+      if (dom.tokenTotalBadge) {
+        dom.tokenTotalBadge.textContent = state.token.total
+      }
       state.token.items = Array.isArray(pageData?.items) ? pageData.items : []
 
       const maxPage = calcTotalPage(state.token.total, state.token.pageSize)
@@ -495,7 +533,7 @@
 
   function renderTokenTable() {
     if (!state.token.items.length) {
-      dom.tokenTableBody.innerHTML = '<tr><td colspan="8" class="text-center">暂无数据</td></tr>'
+      dom.tokenTableBody.innerHTML = '<tr><td colspan="7" class="text-center">暂无数据</td></tr>'
       return
     }
 
@@ -504,29 +542,45 @@
         const id = toNonNegativeInt(token.id, 0)
         const keyText = escapeHtml(String(token.key || ''))
         const nameText = escapeHtml(String(token.name || '-'))
-        const statusText = TOKEN_STATUS_TEXT[token.status] || `状态${token.status}`
+
+                let statusClass = 'badge'
+        if (token.status === 1) statusClass = 'badge badge-success'
+        else if (token.status === 2) statusClass = 'badge badge-danger'
+        else if (token.status === 3) statusClass = 'badge badge-warning'
+
+        const statusText = `<span class="${statusClass}">${TOKEN_STATUS_TEXT[token.status] || '未知'}</span>`
+
         const quotaText = token.unlimited_quota
-          ? '∞（无限）'
-          : `${toNonNegativeInt(token.remain_quota, 0)}（已用 ${toNonNegativeInt(token.used_quota, 0)}）`
+          ? '<span class="badge-count">无限</span>'
+          : `${toNonNegativeInt(token.remain_quota, 0)}`
+
         const expiredText = formatExpiredTime(token.expired_time)
-        const createdText = formatTimestamp(token.created_time)
         const toggleText = token.status === 1 ? '禁用' : '启用'
 
         return `
           <tr>
-            <td>${id}</td>
+            <td><code class="mono text-sub">#${id}</code></td>
             <td>${nameText}</td>
-            <td><code class="mono">${keyText}</code></td>
-            <td>${escapeHtml(statusText)}</td>
-            <td>${escapeHtml(quotaText)}</td>
-            <td>${escapeHtml(expiredText)}</td>
-            <td>${escapeHtml(createdText)}</td>
+            <td><code class="mono token-key">${keyText}</code></td>
+            <td>${statusText}</td>
+            <td>${quotaText}</td>
+            <td class="text-sub">${escapeHtml(expiredText)}</td>
             <td>
               <div class="inline-actions">
-                <button class="btn ghost" type="button" data-action="copy" data-id="${id}">复制</button>
-                <button class="btn ghost" type="button" data-action="edit" data-id="${id}">编辑</button>
-                <button class="btn ghost" type="button" data-action="toggle" data-id="${id}">${toggleText}</button>
-                <button class="btn danger" type="button" data-action="delete" data-id="${id}">删除</button>
+                <button class="btn-ghost-primary" type="button" data-action="copy" data-id="${id}" title="复制 Key">
+                  <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                </button>
+                <button class="btn-ghost-primary" type="button" data-action="edit" data-id="${id}" title="编辑">
+                  <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                </button>
+                <button class="btn-ghost-primary" type="button" data-action="toggle" data-id="${id}" title="${toggleText}">
+                  ${token.status === 1
+                    ? '<svg class="text-danger" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>'
+                    : '<svg class="text-success" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>'}
+                </button>
+                <button class="btn-ghost-primary text-danger" type="button" data-action="delete" data-id="${id}" title="删除">
+                  <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                </button>
               </div>
             </td>
           </tr>
@@ -683,6 +737,7 @@
   function collectTokenPayloadFromForm() {
     const id = toNonNegativeInt(dom.tokenIdInput.value, 0)
     const name = dom.tokenNameInput.value.trim()
+    // 状态从前端 select 获取，默认为 1（启用）
     const status = toPositiveInt(dom.tokenStatusSelect.value, 1)
     const unlimitedQuota = dom.tokenUnlimitedInput.checked
     const quotaInput = dom.tokenQuotaInput.value.trim()
@@ -799,8 +854,15 @@
       return
     }
 
-    const remaining = dom.logTableWrap.scrollHeight - dom.logTableWrap.scrollTop - dom.logTableWrap.clientHeight
-    if (remaining <= 120) {
+    const remainingPx =
+      dom.logTableWrap.scrollHeight - dom.logTableWrap.scrollTop - dom.logTableWrap.clientHeight
+
+    const rowCount = dom.logTableBody.querySelectorAll('tr').length
+    const avgRowHeight = rowCount > 0 ? dom.logTableBody.scrollHeight / rowCount : 40
+    const safeRowHeight = avgRowHeight > 0 ? avgRowHeight : 40
+    const remainingRows = remainingPx / safeRowHeight
+
+    if (remainingRows <= LOG_PREFETCH_REMAINING_ROWS) {
       void loadMoreLogs(false)
     }
   }
@@ -984,7 +1046,7 @@
 
     if (!append) {
       if (!state.log.items.length) {
-        dom.logTableBody.innerHTML = '<tr><td colspan="11" class="text-center">暂无数据</td></tr>'
+        dom.logTableBody.innerHTML = '<tr><td colspan="8" class="text-center">暂无数据</td></tr>'
         return
       }
 
@@ -996,7 +1058,7 @@
       return
     }
 
-    const placeholderRow = dom.logTableBody.querySelector('td[colspan="11"]')
+    const placeholderRow = dom.logTableBody.querySelector('td[colspan="8"]')
     if (placeholderRow) {
       dom.logTableBody.innerHTML = ''
     }
@@ -1005,33 +1067,43 @@
   }
 
   function buildLogRowHTML(item) {
-    const id = toNonNegativeInt(item.id, 0)
     const createdAt = formatTimestamp(item.created_at)
-    const typeText = LOG_TYPE_TEXT[item.type] || `类型${item.type}`
+    const type = item.type
+    const typeText = LOG_TYPE_TEXT[type] || '未知'
+    const typeColor = LOG_TYPE_COLORS[type]
+    const badgeClass = typeColor ? `badge badge-${typeColor}` : 'badge'
+
     const modelName = escapeHtml(String(item.model_name || '-'))
     const tokenName = escapeHtml(String(item.token_name || '-'))
-    const quota = String(toNonNegativeInt(item.quota, 0))
-    const promptTokens = String(toNonNegativeInt(item.prompt_tokens, 0))
-    const completionTokens = String(toNonNegativeInt(item.completion_tokens, 0))
-    const useTime = String(toNonNegativeInt(item.use_time, 0))
-    const requestId = escapeHtml(String(item.request_id || '-'))
+    const promptTokens = toNonNegativeInt(item.prompt_tokens, 0)
+    const completionTokens = toNonNegativeInt(item.completion_tokens, 0)
+    const useTime = toNonNegativeInt(item.use_time, 0)
     const content = String(item.content || '')
-    const contentShort = escapeHtml(truncateText(content, 60))
     const contentFull = escapeHtml(content)
+
+    let detailHTML = '<span class="text-sub">-</span>'
+    if (content) {
+      if (type === 5) {
+        detailHTML = `<div title="${contentFull}" class="log-content-error">${escapeHtml(
+          truncateText(content, 100)
+        )}</div>`
+      } else {
+        detailHTML = `<span title="${contentFull}" class="text-sub log-content-short">${escapeHtml(
+          truncateText(content, 40)
+        )}</span>`
+      }
+    }
 
     return `
       <tr>
-        <td>${id}</td>
-        <td>${escapeHtml(createdAt)}</td>
-        <td>${escapeHtml(typeText)}</td>
+        <td><div class="text-sub">${escapeHtml(createdAt)}</div></td>
+        <td><span class="${badgeClass}">${escapeHtml(typeText)}</span></td>
         <td>${modelName}</td>
-        <td>${tokenName}</td>
-        <td>${escapeHtml(quota)}</td>
-        <td>${escapeHtml(promptTokens)}</td>
-        <td>${escapeHtml(completionTokens)}</td>
-        <td>${escapeHtml(useTime)}</td>
-        <td><code class="mono">${requestId}</code></td>
-        <td title="${contentFull}">${contentShort}</td>
+        <td><code class="mono">${tokenName}</code></td>
+        <td>${promptTokens}</td>
+        <td>${completionTokens}</td>
+        <td class="text-sub">${useTime}s</td>
+        <td>${detailHTML}</td>
       </tr>
     `
   }
@@ -1214,7 +1286,7 @@
     }
 
     dom.alertBox.textContent = message
-    dom.alertBox.className = `alert ${type}`
+    dom.alertBox.className = `alert-toast ${type}`
 
     if (autoHideMs > 0) {
       state.alertTimer = window.setTimeout(() => {
@@ -1229,8 +1301,8 @@
     }
 
     if (loading) {
-      if (!button.dataset.originalText) {
-        button.dataset.originalText = button.textContent
+      if (button.dataset.originalHtml === undefined) {
+        button.dataset.originalHtml = button.innerHTML
       }
       button.disabled = true
       if (loadingText) {
@@ -1240,9 +1312,9 @@
     }
 
     button.disabled = false
-    if (button.dataset.originalText) {
-      button.textContent = button.dataset.originalText
-      delete button.dataset.originalText
+    if (button.dataset.originalHtml !== undefined) {
+      button.innerHTML = button.dataset.originalHtml
+      delete button.dataset.originalHtml
     }
   }
 
