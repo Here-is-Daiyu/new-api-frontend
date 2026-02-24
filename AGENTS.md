@@ -42,6 +42,7 @@
 4. 最终二进制路径固定为：`/opt/newapi-modern-dashboard/newapi-modern-dashboard`。
 5. systemd 服务名固定为：`newapi-modern-dashboard`。
 6. 当前默认监听端口：`12002`。
+7. 支持使用产物直链在 VPS 远端直接下载并部署（无需本地中转上传）。
 
 ### 标准推送部署命令（覆盖升级）
 
@@ -49,6 +50,23 @@
 $zip = "newapi-modern-dashboard-linux-amd64.zip"
 scp "$zip" "vps:/tmp/"
 ssh "vps" "set -e
+rm -rf /tmp/newapi-modern-dashboard
+mkdir -p /tmp/newapi-modern-dashboard
+unzip -o /tmp/newapi-modern-dashboard-linux-amd64.zip -d /tmp/newapi-modern-dashboard >/tmp/newapi-modern-dashboard-unzip.log
+install -d /opt/newapi-modern-dashboard
+install -m 0755 /tmp/newapi-modern-dashboard/newapi-modern-dashboard-linux-amd64 /opt/newapi-modern-dashboard/newapi-modern-dashboard
+systemctl restart newapi-modern-dashboard
+systemctl --no-pager --full status newapi-modern-dashboard
+curl -fsS http://127.0.0.1:12002/healthz
+"
+```
+
+### 直链部署命令（VPS 远端下载）
+
+```bash
+ARTIFACT_URL="https://example.com/newapi-modern-dashboard-linux-amd64.zip"
+ssh "vps" "set -e
+curl -fL \"$ARTIFACT_URL\" -o /tmp/newapi-modern-dashboard-linux-amd64.zip
 rm -rf /tmp/newapi-modern-dashboard
 mkdir -p /tmp/newapi-modern-dashboard
 unzip -o /tmp/newapi-modern-dashboard-linux-amd64.zip -d /tmp/newapi-modern-dashboard >/tmp/newapi-modern-dashboard-unzip.log
