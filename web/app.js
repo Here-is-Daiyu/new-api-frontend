@@ -33,6 +33,19 @@
     6: 'warning'
   }
 
+  const LOG_TYPE_FILTER_OPTIONS = [
+    { value: '0', label: '全部类型' },
+    { value: '2', label: '消费' },
+    { value: '5', label: '错误' },
+    { value: '1', label: '充值' },
+    { value: '3', label: '管理' },
+    { value: '4', label: '系统' },
+    { value: '6', label: '退款' }
+  ]
+
+  const customSelectInstances = new Map()
+  let customSelectGlobalEventsBound = false
+
   const LOG_PREFETCH_REMAINING_ROWS = 20
   const LOG_PAGE_SIZE = 50
 
@@ -113,6 +126,7 @@
     syncTokenQuotaInputState()
     renderModelApiKeyOptions()
     renderModelTable()
+    renderLogTypeOptions()
     renderLogTokenOptions()
     renderLogModelSuggestions()
     await loadServerConfig()
@@ -200,6 +214,10 @@
     dom.tokenGroupInput = document.getElementById('tokenGroupInput')
     dom.tokenCrossGroupRetryInput = document.getElementById('tokenCrossGroupRetryInput')
     dom.saveTokenBtn = document.getElementById('saveTokenBtn')
+
+    initCustomSelect(dom.modelApiKeySelect)
+    initCustomSelect(dom.logTypeSelect)
+    initCustomSelect(dom.logTokenNameInput)
   }
 
   function bindEvents() {
@@ -232,14 +250,18 @@
       void refreshModels(true).catch(() => {})
     })
     dom.modelFilterForm.addEventListener('submit', handleModelFilter)
-    dom.modelApiKeySelect.addEventListener('change', handleModelApiKeyChange)
+    setCustomSelectOnChange(dom.modelApiKeySelect, () => {
+      handleModelApiKeyChange()
+    })
 
     dom.refreshLogBtn.addEventListener('click', () => {
       void loadLogs(true).catch(() => {})
     })
     dom.logFilterForm.addEventListener('submit', handleLogFilter)
     dom.logFilterResetBtn.addEventListener('click', handleLogFilterReset)
-    dom.logTokenNameInput.addEventListener('change', handleLogTokenChange)
+    setCustomSelectOnChange(dom.logTokenNameInput, () => {
+      handleLogTokenChange()
+    })
     dom.logTableWrap.addEventListener('scroll', handleLogTableScroll)
     dom.logLoadState.addEventListener('click', handleLogLoadStateClick)
 
@@ -399,8 +421,8 @@
     state.log.stat.rpm = 0
     state.log.stat.tpm = 0
 
-    dom.logTypeSelect.value = '0'
-    dom.logTokenNameInput.value = ''
+    setCustomSelectValue(dom.logTypeSelect, '0', { silent: true })
+    setCustomSelectValue(dom.logTokenNameInput, '', { silent: true })
     dom.logModelInput.value = ''
     dom.logRequestIdInput.value = ''
     dom.logStartInput.value = ''
@@ -409,6 +431,7 @@
 
     renderModelApiKeyOptions()
     renderModelTable()
+    renderLogTypeOptions()
     renderLogTokenOptions()
     renderLogModelSuggestions()
     renderLogStat()
@@ -923,7 +946,7 @@
 
   function handleModelApiKeyChange() {
     state.model.manualSelection = true
-    state.model.selectedApiKey = dom.modelApiKeySelect.value.trim()
+    state.model.selectedApiKey = getCustomSelectValue(dom.modelApiKeySelect).trim()
     syncSelectTitle(dom.modelApiKeySelect)
   }
 
@@ -1028,20 +1051,25 @@
       return
     }
 
-    const defaultOption = '<option value="">不使用 API Key（公开访问）</option>'
-    const optionHTML = state.model.apiKeys
-      .map(
-        (item) =>
-          `<option value="${escapeHtml(item.key)}" title="${escapeHtml(
-            item.rawLabel || item.label
-          )}">${escapeHtml(item.label)}</option>`
-      )
-      .join('')
+    const options = [
+      {
+        value: '',
+        label: '不使用 API Key（公开访问）',
+        title: '不使用 API Key（公开访问）'
+      },
+      ...state.model.apiKeys.map((item) => ({
+        value: item.key,
+        label: item.label,
+        title: item.rawLabel || item.label
+      }))
+    ]
 
-    dom.modelApiKeySelect.innerHTML = defaultOption + optionHTML
+    setCustomSelectOptions(dom.modelApiKeySelect, options)
 
     const selectedExists = state.model.apiKeys.some((item) => item.key === state.model.selectedApiKey)
-    dom.modelApiKeySelect.value = selectedExists ? state.model.selectedApiKey : ''
+    setCustomSelectValue(dom.modelApiKeySelect, selectedExists ? state.model.selectedApiKey : '', {
+      silent: true
+    })
     syncSelectTitle(dom.modelApiKeySelect)
   }
 
@@ -1178,8 +1206,8 @@
   }
 
   function handleLogFilterReset() {
-    dom.logTypeSelect.value = '0'
-    dom.logTokenNameInput.value = ''
+    setCustomSelectValue(dom.logTypeSelect, '0', { silent: true })
+    setCustomSelectValue(dom.logTokenNameInput, '', { silent: true })
     dom.logModelInput.value = ''
     dom.logRequestIdInput.value = ''
     dom.logStartInput.value = ''
@@ -1272,32 +1300,54 @@
     }
   }
 
+  function renderLogTypeOptions() {
+    if (!dom.logTypeSelect) {
+      return
+    }
+
+    const currentValue = getCustomSelectValue(dom.logTypeSelect).trim() || '0'
+    const options = LOG_TYPE_FILTER_OPTIONS.map((item) => ({
+      value: item.value,
+      label: item.label,
+      title: item.label
+    }))
+
+    setCustomSelectOptions(dom.logTypeSelect, options)
+
+    const exists = options.some((item) => item.value === currentValue)
+    setCustomSelectValue(dom.logTypeSelect, exists ? currentValue : '0', { silent: true })
+    syncSelectTitle(dom.logTypeSelect)
+  }
+
   function renderLogTokenOptions() {
     if (!dom.logTokenNameInput) {
       return
     }
 
-    const currentValue = String(dom.logTokenNameInput.value || '').trim()
-    const defaultOption = '<option value="">全部 Token</option>'
-    const optionHTML = state.log.tokenOptions
-      .map((item) => {
-        const displayName = truncateMiddle(item.name, 28, 16, 8)
-        return `<option value="${escapeHtml(item.name)}" title="${escapeHtml(item.name)}">${escapeHtml(
-          displayName
-        )}</option>`
-      })
-      .join('')
+    const currentValue = getCustomSelectValue(dom.logTokenNameInput).trim()
+    const options = [
+      {
+        value: '',
+        label: '全部 Token',
+        title: '全部 Token'
+      },
+      ...state.log.tokenOptions.map((item) => ({
+        value: item.name,
+        label: truncateMiddle(item.name, 28, 16, 8),
+        title: item.name
+      }))
+    ]
 
-    dom.logTokenNameInput.innerHTML = defaultOption + optionHTML
+    setCustomSelectOptions(dom.logTokenNameInput, options)
 
     const exists = state.log.tokenOptions.some((item) => item.name === currentValue)
-    dom.logTokenNameInput.value = exists ? currentValue : ''
+    setCustomSelectValue(dom.logTokenNameInput, exists ? currentValue : '', { silent: true })
     syncSelectTitle(dom.logTokenNameInput)
   }
 
   async function refreshLogModelSuggestions(showError) {
     try {
-      const selectedTokenName = String(dom.logTokenNameInput?.value || '').trim()
+      const selectedTokenName = getCustomSelectValue(dom.logTokenNameInput).trim()
 
       if (!selectedTokenName) {
         const data = await apiRequest('/api/internal/log/model-suggestions', { local: true })
@@ -1379,9 +1429,9 @@
 
   function collectLogFiltersFromForm() {
     state.log.pageSize = LOG_PAGE_SIZE
-    state.log.filters.type = dom.logTypeSelect.value
+    state.log.filters.type = getCustomSelectValue(dom.logTypeSelect)
     state.log.filters.modelName = dom.logModelInput.value.trim()
-    state.log.filters.tokenName = dom.logTokenNameInput.value.trim()
+    state.log.filters.tokenName = getCustomSelectValue(dom.logTokenNameInput).trim()
     state.log.filters.requestId = dom.logRequestIdInput.value.trim()
     state.log.filters.startTime = dom.logStartInput.value.trim()
     state.log.filters.endTime = dom.logEndInput.value.trim()
@@ -1961,8 +2011,270 @@
       return
     }
 
-    const selectedOption = selectElement.options[selectElement.selectedIndex]
+    const instance = customSelectInstances.get(selectElement)
+    if (instance) {
+      const selected = instance.options.find((item) => item.value === instance.value) || null
+      selectElement.title = selected ? selected.title || selected.label : ''
+      return
+    }
+
+    const selectedOption = selectElement.options?.[selectElement.selectedIndex]
     selectElement.title = selectedOption ? selectedOption.text : ''
+  }
+
+  function initCustomSelect(selectRoot) {
+    if (!selectRoot || customSelectInstances.has(selectRoot)) {
+      return
+    }
+
+    selectRoot.innerHTML = `
+      <button type="button" class="custom-select-trigger" aria-haspopup="listbox" aria-expanded="false">
+        <span class="custom-select-label">请选择</span>
+        <span class="custom-select-caret" aria-hidden="true"></span>
+      </button>
+      <div class="custom-select-dropdown hidden" role="listbox"></div>
+    `
+
+    const trigger = selectRoot.querySelector('.custom-select-trigger')
+    const label = selectRoot.querySelector('.custom-select-label')
+    const dropdown = selectRoot.querySelector('.custom-select-dropdown')
+
+    if (!trigger || !label || !dropdown) {
+      return
+    }
+
+    const instance = {
+      root: selectRoot,
+      trigger,
+      label,
+      dropdown,
+      value: '',
+      options: [],
+      onChange: null,
+      isOpen: false
+    }
+
+    customSelectInstances.set(selectRoot, instance)
+    bindCustomSelectGlobalEvents()
+
+    trigger.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (instance.isOpen) {
+        closeCustomSelect(selectRoot)
+      } else {
+        openCustomSelect(selectRoot)
+      }
+    })
+
+    trigger.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+        event.preventDefault()
+        openCustomSelect(selectRoot)
+      }
+
+      if (event.key === 'Escape') {
+        closeCustomSelect(selectRoot)
+      }
+    })
+
+    dropdown.addEventListener('click', (event) => {
+      const optionBtn = event.target.closest('.custom-select-option')
+      if (!optionBtn) {
+        return
+      }
+
+      const optionIndex = Number.parseInt(optionBtn.dataset.optionIndex || '', 10)
+      if (!Number.isFinite(optionIndex) || optionIndex < 0 || optionIndex >= instance.options.length) {
+        return
+      }
+
+      const nextValue = instance.options[optionIndex].value
+      setCustomSelectValue(selectRoot, nextValue)
+      closeCustomSelect(selectRoot)
+    })
+
+    updateCustomSelectUI(selectRoot)
+  }
+
+  function bindCustomSelectGlobalEvents() {
+    if (customSelectGlobalEventsBound) {
+      return
+    }
+
+    customSelectGlobalEventsBound = true
+
+    document.addEventListener('click', (event) => {
+      customSelectInstances.forEach((_, root) => {
+        if (!root.contains(event.target)) {
+          closeCustomSelect(root)
+        }
+      })
+    })
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        closeAllCustomSelect()
+      }
+    })
+
+    window.addEventListener('resize', () => {
+      closeAllCustomSelect()
+    })
+  }
+
+  function setCustomSelectOnChange(selectRoot, handler) {
+    const instance = customSelectInstances.get(selectRoot)
+    if (!instance) {
+      return
+    }
+
+    instance.onChange = typeof handler === 'function' ? handler : null
+  }
+
+  function setCustomSelectOptions(selectRoot, options) {
+    const instance = customSelectInstances.get(selectRoot)
+    if (!instance) {
+      return
+    }
+
+    const normalizedOptions = Array.isArray(options)
+      ? options.map((item) => ({
+          value: String(item?.value ?? ''),
+          label: String(item?.label ?? ''),
+          title: String(item?.title ?? item?.label ?? '')
+        }))
+      : []
+
+    instance.options = normalizedOptions
+    instance.dropdown.innerHTML = ''
+
+    if (!normalizedOptions.length) {
+      instance.value = ''
+      const empty = document.createElement('div')
+      empty.className = 'custom-select-empty'
+      empty.textContent = '暂无可选项'
+      instance.dropdown.appendChild(empty)
+      updateCustomSelectUI(selectRoot)
+      return
+    }
+
+    normalizedOptions.forEach((item, index) => {
+      const optionButton = document.createElement('button')
+      optionButton.type = 'button'
+      optionButton.className = 'custom-select-option'
+      optionButton.dataset.optionIndex = String(index)
+      optionButton.title = item.title
+      optionButton.textContent = item.label
+      instance.dropdown.appendChild(optionButton)
+    })
+
+    const exists = normalizedOptions.some((item) => item.value === instance.value)
+    if (!exists) {
+      instance.value = normalizedOptions[0].value
+    }
+
+    updateCustomSelectUI(selectRoot)
+  }
+
+  function setCustomSelectValue(selectRoot, value, options = {}) {
+    const instance = customSelectInstances.get(selectRoot)
+    if (!instance) {
+      return
+    }
+
+    const silent = Boolean(options.silent)
+    const normalizedValue = String(value ?? '')
+    let nextValue = normalizedValue
+
+    const exists = instance.options.some((item) => item.value === normalizedValue)
+    if (!exists) {
+      nextValue = instance.options[0]?.value || ''
+    }
+
+    const changed = instance.value !== nextValue
+    instance.value = nextValue
+    updateCustomSelectUI(selectRoot)
+
+    if (changed && !silent && typeof instance.onChange === 'function') {
+      instance.onChange(nextValue)
+    }
+  }
+
+  function getCustomSelectValue(selectRoot) {
+    if (!selectRoot) {
+      return ''
+    }
+
+    const instance = customSelectInstances.get(selectRoot)
+    if (instance) {
+      return instance.value || ''
+    }
+
+    return String(selectRoot.value || '')
+  }
+
+  function openCustomSelect(selectRoot) {
+    const instance = customSelectInstances.get(selectRoot)
+    if (!instance || instance.isOpen || !instance.options.length) {
+      return
+    }
+
+    closeAllCustomSelect(selectRoot)
+
+    instance.isOpen = true
+    instance.root.classList.add('open')
+    instance.trigger.setAttribute('aria-expanded', 'true')
+    instance.dropdown.classList.remove('hidden')
+  }
+
+  function closeCustomSelect(selectRoot) {
+    const instance = customSelectInstances.get(selectRoot)
+    if (!instance || !instance.isOpen) {
+      return
+    }
+
+    instance.isOpen = false
+    instance.root.classList.remove('open')
+    instance.trigger.setAttribute('aria-expanded', 'false')
+    instance.dropdown.classList.add('hidden')
+  }
+
+  function closeAllCustomSelect(exceptRoot = null) {
+    customSelectInstances.forEach((_, root) => {
+      if (root !== exceptRoot) {
+        closeCustomSelect(root)
+      }
+    })
+  }
+
+  function updateCustomSelectUI(selectRoot) {
+    const instance = customSelectInstances.get(selectRoot)
+    if (!instance) {
+      return
+    }
+
+    const selected = instance.options.find((item) => item.value === instance.value) || null
+    const labelText = selected ? selected.label : '请选择'
+    const titleText = selected ? selected.title || selected.label : ''
+
+    instance.label.textContent = labelText
+    instance.root.title = titleText
+    instance.root.dataset.value = selected ? selected.value : ''
+
+    const optionButtons = instance.dropdown.querySelectorAll('.custom-select-option')
+    optionButtons.forEach((button) => {
+      const optionIndex = Number.parseInt(button.dataset.optionIndex || '', 10)
+      const option = Number.isFinite(optionIndex) ? instance.options[optionIndex] : null
+      const active = Boolean(option && selected && option.value === selected.value)
+
+      button.classList.toggle('active', active)
+      if (active) {
+        button.setAttribute('aria-selected', 'true')
+      } else {
+        button.removeAttribute('aria-selected')
+      }
+    })
   }
 
   function escapeHtml(value) {

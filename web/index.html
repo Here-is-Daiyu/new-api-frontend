@@ -181,9 +181,7 @@
             </div>
 
             <form id="modelFilterForm" class="filter-bar">
-              <select id="modelApiKeySelect" class="select-sm">
-                <option value="">不使用 API Key（公开访问）</option>
-              </select>
+              <div id="modelApiKeySelect" class="custom-select custom-select-sm" aria-label="模型 API Key 下拉"></div>
               <button class="btn-primary btn-sm" type="submit">拉取模型列表</button>
             </form>
 
@@ -229,18 +227,8 @@
             </div>
 
             <form id="logFilterForm" class="filter-grid">
-              <select id="logTypeSelect" class="input-sm">
-                <option value="0">全部类型</option>
-                <option value="2">消费</option>
-                <option value="5">错误</option>
-                <option value="1">充值</option>
-                <option value="3">管理</option>
-                <option value="4">系统</option>
-                <option value="6">退款</option>
-              </select>
-              <select id="logTokenNameInput" class="input-sm">
-                <option value="">全部 Token</option>
-              </select>
+              <div id="logTypeSelect" class="custom-select custom-select-sm" aria-label="日志类型下拉"></div>
+              <div id="logTokenNameInput" class="custom-select custom-select-sm" aria-label="日志 Token 下拉"></div>
               <input id="logModelInput" class="input-sm" type="text" list="logModelList" placeholder="模型（可下拉或手动输入）" />
               <datalist id="logModelList"></datalist>
               <input id="logRequestIdInput" class="input-sm" type="text" placeholder="Req ID" />
