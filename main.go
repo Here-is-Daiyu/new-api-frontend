@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -19,6 +23,8 @@ var version = "dev"
 
 var defaultBaseURL string
 
+var upstreamHTTPClient = &http.Client{Timeout: 20 * time.Second}
+
 //go:embed web/*
 var webFS embed.FS
 
@@ -26,6 +32,24 @@ type jsonResponse struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
+}
+
+type upstreamEnvelope struct {
+	Success bool            `json:"success"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
+}
+
+type tokenItem struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Key    string `json:"key"`
+	Status int    `json:"status"`
+}
+
+type tokenPageData struct {
+	Total int         `json:"total"`
+	Items []tokenItem `json:"items"`
 }
 
 func main() {
@@ -49,6 +73,9 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/config", handleConfig)
+	mux.HandleFunc("/favicon.ico", handleFaviconPNG)
+	mux.HandleFunc("/favicon.png", handleFaviconPNG)
+	mux.HandleFunc("/api/internal/log/model-suggestions", handleLogModelSuggestions)
 	mux.HandleFunc("/proxy", handleProxy)
 	mux.HandleFunc("/proxy/", handleProxy)
 	mux.Handle("/", http.FileServer(http.FS(staticFS)))
@@ -85,13 +112,430 @@ func handleConfig(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func handleProxy(w http.ResponseWriter, r *http.Request) {
+func handleFaviconPNG(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	if strings.TrimSpace(r.URL.Query().Get("base_url")) == "" &&
+		strings.TrimSpace(r.Header.Get("X-Base-URL")) == "" &&
+		strings.TrimSpace(defaultBaseURL) == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	targetBase, err := resolveTargetBaseURL(r, true)
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	targetURL := *targetBase
+	targetURL.Path = joinURLPath(targetBase.Path, "/favicon.png")
+	targetURL.RawQuery = ""
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, targetURL.String(), nil)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+
+	copyHeaderIfPresent(r.Header, req.Header, "User-Agent")
+	req.Header.Set("Accept", "image/png,image/*;q=0.9,*/*;q=0.8")
+
+	resp, err := upstreamHTTPClient.Do(req)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	copyResponseHeaderIfPresent(resp.Header, w.Header(), "Content-Type")
+	copyResponseHeaderIfPresent(resp.Header, w.Header(), "Cache-Control")
+	copyResponseHeaderIfPresent(resp.Header, w.Header(), "ETag")
+	copyResponseHeaderIfPresent(resp.Header, w.Header(), "Last-Modified")
+	copyResponseHeaderIfPresent(resp.Header, w.Header(), "Expires")
+
+	w.WriteHeader(resp.StatusCode)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = io.Copy(w, io.LimitReader(resp.Body, 4<<20))
+}
+
+func handleLogModelSuggestions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, jsonResponse{Success: false, Message: "仅支持 GET"})
+		return
+	}
+
+	targetBase, err := resolveTargetBaseURL(r, false)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, jsonResponse{Success: false, Message: "BaseURL 非法: " + err.Error()})
+		return
+	}
+
+	tokenKeys, err := fetchAllTokenKeysForModelAggregation(r.Context(), r, targetBase)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, jsonResponse{Success: false, Message: "获取 Token 列表失败: " + err.Error()})
+		return
+	}
+
+	modelSet := make(map[string]struct{})
+	modelIDs := make([]string, 0)
+	failedTokenCount := 0
+
+	if len(tokenKeys) == 0 {
+		ids, err := fetchModelIDsByToken(r.Context(), r, targetBase, "")
+		if err == nil {
+			for _, id := range ids {
+				if _, exists := modelSet[id]; exists {
+					continue
+				}
+				modelSet[id] = struct{}{}
+				modelIDs = append(modelIDs, id)
+			}
+		}
+	} else {
+		for _, key := range tokenKeys {
+			ids, err := fetchModelIDsByToken(r.Context(), r, targetBase, key)
+			if err != nil {
+				failedTokenCount++
+				continue
+			}
+
+			for _, id := range ids {
+				if _, exists := modelSet[id]; exists {
+					continue
+				}
+				modelSet[id] = struct{}{}
+				modelIDs = append(modelIDs, id)
+			}
+		}
+	}
+
+	sort.Strings(modelIDs)
+
+	writeJSON(w, http.StatusOK, jsonResponse{
+		Success: true,
+		Data: map[string]interface{}{
+			"model_ids":          modelIDs,
+			"token_count":        len(tokenKeys),
+			"failed_token_count": failedTokenCount,
+		},
+	})
+}
+
+func fetchAllTokenKeysForModelAggregation(ctx context.Context, sourceReq *http.Request, targetBase *url.URL) ([]string, error) {
+	const pageSize = 100
+	const maxPages = 20
+
+	keys := make([]string, 0)
+	seen := make(map[string]struct{})
+	total := 0
+	fetchedItems := 0
+
+	for page := 1; page <= maxPages; page++ {
+		pageData, err := fetchTokenPage(ctx, sourceReq, targetBase, page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+
+		if pageData.Total > total {
+			total = pageData.Total
+		}
+
+		items := pageData.Items
+		if len(items) == 0 {
+			break
+		}
+
+		fetchedItems += len(items)
+
+		for _, token := range items {
+			key := normalizeTokenKey(token.Key)
+			if key == "" {
+				continue
+			}
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+		}
+
+		if total > 0 && fetchedItems >= total {
+			break
+		}
+		if len(items) < pageSize {
+			break
+		}
+	}
+
+	return keys, nil
+}
+
+func fetchTokenPage(ctx context.Context, sourceReq *http.Request, targetBase *url.URL, page, pageSize int) (tokenPageData, error) {
+	query := url.Values{}
+	query.Set("p", fmt.Sprintf("%d", page))
+	query.Set("page_size", fmt.Sprintf("%d", pageSize))
+
+	req, err := buildUpstreamRequest(ctx, sourceReq, targetBase, http.MethodGet, "/api/token/", query)
+	if err != nil {
+		return tokenPageData{}, err
+	}
+
+	statusCode, body, err := performUpstreamRequest(req)
+	if err != nil {
+		return tokenPageData{}, err
+	}
+	if statusCode < 200 || statusCode >= 300 {
+		return tokenPageData{}, errors.New(parseUpstreamErrorMessage(body, statusCode))
+	}
+
+	var envelope upstreamEnvelope
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return tokenPageData{}, fmt.Errorf("解析 token 响应失败: %w", err)
+	}
+	if !envelope.Success {
+		msg := strings.TrimSpace(envelope.Message)
+		if msg == "" {
+			msg = "token 查询失败"
+		}
+		return tokenPageData{}, errors.New(msg)
+	}
+
+	if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
+		return tokenPageData{}, nil
+	}
+
+	var pageData tokenPageData
+	if err := json.Unmarshal(envelope.Data, &pageData); err != nil {
+		return tokenPageData{}, fmt.Errorf("解析 token 数据失败: %w", err)
+	}
+
+	return pageData, nil
+}
+
+func fetchModelIDsByToken(ctx context.Context, sourceReq *http.Request, targetBase *url.URL, tokenKey string) ([]string, error) {
+	ids, err := fetchModelIDsFromPath(ctx, sourceReq, targetBase, "/v1/models", tokenKey)
+	if err == nil {
+		return ids, nil
+	}
+
+	fallbackIDs, fallbackErr := fetchModelIDsFromPath(ctx, sourceReq, targetBase, "/models", tokenKey)
+	if fallbackErr == nil {
+		return fallbackIDs, nil
+	}
+
+	return nil, fmt.Errorf("%v; %v", err, fallbackErr)
+}
+
+func fetchModelIDsFromPath(ctx context.Context, sourceReq *http.Request, targetBase *url.URL, modelPath, tokenKey string) ([]string, error) {
+	req, err := buildUpstreamRequest(ctx, sourceReq, targetBase, http.MethodGet, modelPath, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	normalizedKey := normalizeTokenKey(tokenKey)
+	if normalizedKey != "" {
+		req.Header.Set("Authorization", "Bearer "+normalizedKey)
+	}
+
+	statusCode, body, err := performUpstreamRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if statusCode < 200 || statusCode >= 300 {
+		return nil, errors.New(parseUpstreamErrorMessage(body, statusCode))
+	}
+
+	modelIDs, err := parseModelIDs(body)
+	if err != nil {
+		return nil, err
+	}
+	return modelIDs, nil
+}
+
+func parseModelIDs(body []byte) ([]string, error) {
+	var payload interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("解析模型列表失败: %w", err)
+	}
+
+	items, ok := extractModelItems(payload)
+	if !ok {
+		return nil, errors.New("模型列表结构不受支持")
+	}
+
+	ids := make([]string, 0, len(items))
+	seen := make(map[string]struct{})
+
+	for _, item := range items {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		modelID := strings.TrimSpace(anyToString(itemMap["id"]))
+		if modelID == "" {
+			continue
+		}
+		if _, exists := seen[modelID]; exists {
+			continue
+		}
+
+		seen[modelID] = struct{}{}
+		ids = append(ids, modelID)
+	}
+
+	return ids, nil
+}
+
+func extractModelItems(payload interface{}) ([]interface{}, bool) {
+	switch typed := payload.(type) {
+	case []interface{}:
+		return typed, true
+	case map[string]interface{}:
+		if dataItems, ok := typed["data"].([]interface{}); ok {
+			return dataItems, true
+		}
+
+		if dataObj, ok := typed["data"].(map[string]interface{}); ok {
+			if nestedItems, ok := dataObj["data"].([]interface{}); ok {
+				return nestedItems, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+func buildUpstreamRequest(ctx context.Context, sourceReq *http.Request, targetBase *url.URL, method, requestPath string, query url.Values) (*http.Request, error) {
+	targetURL := *targetBase
+	targetURL.Path = joinURLPath(targetBase.Path, requestPath)
+	targetURL.RawQuery = ""
+	targetURL.Fragment = ""
+	if query != nil {
+		targetURL.RawQuery = query.Encode()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, targetURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	copyHeaderIfPresent(sourceReq.Header, req.Header, "Cookie")
+	copyHeaderIfPresent(sourceReq.Header, req.Header, "New-Api-User")
+	copyHeaderIfPresent(sourceReq.Header, req.Header, "User-Agent")
+	req.Header.Set("Accept", "application/json")
+
+	return req, nil
+}
+
+func performUpstreamRequest(req *http.Request) (int, []byte, error) {
+	resp, err := upstreamHTTPClient.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+
+	return resp.StatusCode, body, nil
+}
+
+func parseUpstreamErrorMessage(body []byte, statusCode int) string {
+	if len(body) == 0 {
+		return fmt.Sprintf("上游返回 HTTP %d", statusCode)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err == nil {
+		if msg := strings.TrimSpace(anyToString(payload["message"])); msg != "" {
+			return msg
+		}
+		if errorMap, ok := payload["error"].(map[string]interface{}); ok {
+			if msg := strings.TrimSpace(anyToString(errorMap["message"])); msg != "" {
+				return msg
+			}
+		}
+	}
+
+	plain := strings.TrimSpace(string(body))
+	if plain == "" {
+		return fmt.Sprintf("上游返回 HTTP %d", statusCode)
+	}
+	if len(plain) > 300 {
+		plain = plain[:300] + "..."
+	}
+	return plain
+}
+
+func anyToString(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case json.Number:
+		return v.String()
+	case float64:
+		if v == float64(int64(v)) {
+			return fmt.Sprintf("%d", int64(v))
+		}
+		return fmt.Sprintf("%v", v)
+	case float32:
+		if v == float32(int64(v)) {
+			return fmt.Sprintf("%d", int64(v))
+		}
+		return fmt.Sprintf("%v", v)
+	case int:
+		return fmt.Sprintf("%d", v)
+	case int64:
+		return fmt.Sprintf("%d", v)
+	case int32:
+		return fmt.Sprintf("%d", v)
+	case uint:
+		return fmt.Sprintf("%d", v)
+	case uint64:
+		return fmt.Sprintf("%d", v)
+	case uint32:
+		return fmt.Sprintf("%d", v)
+	default:
+		if value == nil {
+			return ""
+		}
+		return fmt.Sprintf("%v", value)
+	}
+}
+
+func normalizeTokenKey(raw string) string {
+	key := strings.TrimSpace(raw)
+	if key == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(key), "sk-") {
+		return key
+	}
+	return "sk-" + key
+}
+
+func resolveTargetBaseURL(r *http.Request, allowQueryBaseURL bool) (*url.URL, error) {
 	baseURL := strings.TrimSpace(r.Header.Get("X-Base-URL"))
+	if baseURL == "" && allowQueryBaseURL {
+		baseURL = strings.TrimSpace(r.URL.Query().Get("base_url"))
+	}
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
+	return validateBaseURL(baseURL)
+}
 
-	targetBase, err := validateBaseURL(baseURL)
+func handleProxy(w http.ResponseWriter, r *http.Request) {
+	targetBase, err := resolveTargetBaseURL(r, false)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, jsonResponse{Success: false, Message: "BaseURL 非法: " + err.Error()})
 		return
@@ -124,6 +568,22 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy.ServeHTTP(w, r)
+}
+
+func copyHeaderIfPresent(src http.Header, dst http.Header, key string) {
+	value := strings.TrimSpace(src.Get(key))
+	if value == "" {
+		return
+	}
+	dst.Set(key, value)
+}
+
+func copyResponseHeaderIfPresent(src http.Header, dst http.Header, key string) {
+	value := strings.TrimSpace(src.Get(key))
+	if value == "" {
+		return
+	}
+	dst.Set(key, value)
 }
 
 func rewriteSetCookieDomain(resp *http.Response) {

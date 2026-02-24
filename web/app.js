@@ -63,7 +63,8 @@
       isLoading: false,
       loaded: false,
       selectedApiKey: '',
-      apiKeys: []
+      apiKeys: [],
+      manualSelection: false
     },
     log: {
       page: 1,
@@ -89,6 +90,7 @@
         tpm: 0
       },
       loaded: false,
+      initPromise: null,
       tokenOptions: [],
       tokenKeyByName: {},
       modelSuggestions: []
@@ -230,6 +232,7 @@
       void refreshModels(true).catch(() => {})
     })
     dom.modelFilterForm.addEventListener('submit', handleModelFilter)
+    dom.modelApiKeySelect.addEventListener('change', handleModelApiKeyChange)
 
     dom.refreshLogBtn.addEventListener('click', () => {
       void loadLogs(true).catch(() => {})
@@ -355,6 +358,7 @@
       await fetchSelf(true)
       showLoggedInState()
       await Promise.allSettled([loadTokens()])
+      void prefetchLogPanel().catch(() => {})
     } catch {
       showLoggedOutState()
     }
@@ -377,9 +381,11 @@
     state.model.loaded = false
     state.model.selectedApiKey = ''
     state.model.apiKeys = []
+    state.model.manualSelection = false
 
     state.log.requestVersion += 1
     state.log.loaded = false
+    state.log.initPromise = null
     state.log.page = 1
     state.log.total = 0
     state.log.items = []
@@ -464,6 +470,7 @@
       dom.passwordInput.value = ''
       showLoggedInState()
       await Promise.allSettled([loadTokens()])
+      void prefetchLogPanel().catch(() => {})
       showAlert('登录成功', 'success')
     } catch (err) {
       showAlert('登录失败：' + (err.message || '未知错误'), 'error', 0)
@@ -537,10 +544,7 @@
     }
 
     if (panelId === 'logPanel' && state.user && !state.log.loaded) {
-      state.log.loaded = true
-      void initializeLogPanel(true).catch(() => {
-        state.log.loaded = false
-      })
+      void ensureLogPanelInitialized(true).catch(() => {})
     }
   }
 
@@ -917,9 +921,15 @@
     }
   }
 
+  function handleModelApiKeyChange() {
+    state.model.manualSelection = true
+    state.model.selectedApiKey = dom.modelApiKeySelect.value.trim()
+    syncSelectTitle(dom.modelApiKeySelect)
+  }
+
   function handleModelFilter(event) {
     event.preventDefault()
-    state.model.selectedApiKey = dom.modelApiKeySelect.value.trim()
+    handleModelApiKeyChange()
     void loadModels(true).catch(() => {})
   }
 
@@ -945,13 +955,27 @@
 
         const tokenId = toNonNegativeInt(token.id, 0)
         const tokenName = String(token.name || '').trim() || `Token #${tokenId || '-'}`
+        const tokenStatus = Number.parseInt(token.status, 10)
+
         options.push({
           key,
-          label: `${tokenName} (${key})`
+          label: formatModelApiKeyLabel(tokenName, key),
+          rawLabel: `${tokenName} (${key})`,
+          isAvailable: tokenStatus === 1
         })
       })
 
       state.model.apiKeys = options
+
+      const selectedExists = state.model.apiKeys.some((item) => item.key === state.model.selectedApiKey)
+      const keepManualPublicSelection = state.model.manualSelection && state.model.selectedApiKey === ''
+      const fallbackApiKey =
+        state.model.apiKeys.find((item) => item.isAvailable)?.key || state.model.apiKeys[0]?.key || ''
+
+      if (!selectedExists) {
+        state.model.selectedApiKey = keepManualPublicSelection ? '' : fallbackApiKey
+      }
+
       renderModelApiKeyOptions()
     } catch (err) {
       if (showError) {
@@ -1006,20 +1030,19 @@
 
     const defaultOption = '<option value="">不使用 API Key（公开访问）</option>'
     const optionHTML = state.model.apiKeys
-      .map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`)
+      .map(
+        (item) =>
+          `<option value="${escapeHtml(item.key)}" title="${escapeHtml(
+            item.rawLabel || item.label
+          )}">${escapeHtml(item.label)}</option>`
+      )
       .join('')
 
     dom.modelApiKeySelect.innerHTML = defaultOption + optionHTML
 
-    const selectedExists =
-      state.model.selectedApiKey &&
-      state.model.apiKeys.some((item) => item.key === state.model.selectedApiKey)
-
-    if (!selectedExists) {
-      state.model.selectedApiKey = ''
-    }
-
-    dom.modelApiKeySelect.value = state.model.selectedApiKey
+    const selectedExists = state.model.apiKeys.some((item) => item.key === state.model.selectedApiKey)
+    dom.modelApiKeySelect.value = selectedExists ? state.model.selectedApiKey : ''
+    syncSelectTitle(dom.modelApiKeySelect)
   }
 
   async function loadModels(showError) {
@@ -1168,7 +1191,39 @@
   }
 
   function handleLogTokenChange() {
+    syncSelectTitle(dom.logTokenNameInput)
     void refreshLogModelSuggestions(false).catch(() => {})
+  }
+
+  function prefetchLogPanel() {
+    if (!state.user) {
+      return Promise.resolve()
+    }
+    return ensureLogPanelInitialized(false)
+  }
+
+  function ensureLogPanelInitialized(showError) {
+    if (state.log.loaded) {
+      return Promise.resolve()
+    }
+
+    if (state.log.initPromise) {
+      return state.log.initPromise
+    }
+
+    state.log.initPromise = (async () => {
+      await initializeLogPanel(showError)
+      state.log.loaded = true
+    })()
+      .catch((err) => {
+        state.log.loaded = false
+        throw err
+      })
+      .finally(() => {
+        state.log.initPromise = null
+      })
+
+    return state.log.initPromise
   }
 
   async function initializeLogPanel(showError) {
@@ -1225,18 +1280,36 @@
     const currentValue = String(dom.logTokenNameInput.value || '').trim()
     const defaultOption = '<option value="">全部 Token</option>'
     const optionHTML = state.log.tokenOptions
-      .map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`)
+      .map((item) => {
+        const displayName = truncateMiddle(item.name, 28, 16, 8)
+        return `<option value="${escapeHtml(item.name)}" title="${escapeHtml(item.name)}">${escapeHtml(
+          displayName
+        )}</option>`
+      })
       .join('')
 
     dom.logTokenNameInput.innerHTML = defaultOption + optionHTML
 
     const exists = state.log.tokenOptions.some((item) => item.name === currentValue)
     dom.logTokenNameInput.value = exists ? currentValue : ''
+    syncSelectTitle(dom.logTokenNameInput)
   }
 
   async function refreshLogModelSuggestions(showError) {
     try {
       const selectedTokenName = String(dom.logTokenNameInput?.value || '').trim()
+
+      if (!selectedTokenName) {
+        const data = await apiRequest('/api/internal/log/model-suggestions', { local: true })
+        const modelIds = Array.isArray(data?.model_ids)
+          ? data.model_ids.map((item) => String(item || '').trim()).filter(Boolean)
+          : []
+
+        state.log.modelSuggestions = modelIds
+        renderLogModelSuggestions()
+        return
+      }
+
       const selectedTokenKey = state.log.tokenKeyByName[selectedTokenName] || ''
       const headers = {}
 
@@ -1648,9 +1721,10 @@
     const query = options.query || {}
     const body = options.body
     const rawResponse = Boolean(options.rawResponse)
+    const localRequest = Boolean(options.local)
 
     const baseURL = getActiveBaseURL()
-    const url = buildProxyURL(path, query)
+    const url = localRequest ? buildLocalURL(path, query) : buildProxyURL(path, query)
 
     const headers = {
       'X-Base-URL': baseURL,
@@ -1707,6 +1781,20 @@
     return url.toString()
   }
 
+  function buildLocalURL(path, query) {
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`
+    const url = new URL(normalizedPath, window.location.origin)
+
+    Object.entries(query).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') {
+        return
+      }
+      url.searchParams.set(key, String(value))
+    })
+
+    return url.toString()
+  }
+
   function syncBaseURLFromInput() {
     const inputValue = dom.baseUrlInput.value.trim()
     if (!inputValue) {
@@ -1741,15 +1829,16 @@
 
     const activeBase = String(state.baseURL || '').trim()
     if (!activeBase) {
-      dom.dynamicFavicon.href = '/favicon.ico'
+      dom.dynamicFavicon.href = '/favicon.png'
       return
     }
 
     try {
       const normalized = normalizeBaseURL(activeBase)
-      dom.dynamicFavicon.href = `${normalized}/favicon.png`
+      const encodedBase = encodeURIComponent(normalized)
+      dom.dynamicFavicon.href = `/favicon.png?base_url=${encodedBase}`
     } catch {
-      dom.dynamicFavicon.href = '/favicon.ico'
+      dom.dynamicFavicon.href = '/favicon.png'
     }
   }
 
@@ -1861,6 +1950,21 @@
     return `sk-${key}`
   }
 
+  function formatModelApiKeyLabel(tokenName, key) {
+    const safeName = truncateMiddle(String(tokenName || ''), 26, 14, 8)
+    const safeKey = truncateMiddle(String(key || ''), 24, 8, 8)
+    return `${safeName} (${safeKey})`
+  }
+
+  function syncSelectTitle(selectElement) {
+    if (!selectElement) {
+      return
+    }
+
+    const selectedOption = selectElement.options[selectElement.selectedIndex]
+    selectElement.title = selectedOption ? selectedOption.text : ''
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replaceAll('&', '&amp;')
@@ -1937,6 +2041,26 @@
       return plain
     }
     return plain.slice(0, maxLength) + '...'
+  }
+
+  function truncateMiddle(text, maxLength = 24, headLength = 10, tailLength = 8) {
+    const plain = String(text || '')
+    const safeMax = Number.isFinite(maxLength) && maxLength > 4 ? Math.floor(maxLength) : 24
+
+    if (plain.length <= safeMax) {
+      return plain
+    }
+
+    const maxVisible = safeMax - 3
+    let head = Number.isFinite(headLength) && headLength > 0 ? Math.floor(headLength) : Math.ceil(maxVisible / 2)
+    let tail = Number.isFinite(tailLength) && tailLength > 0 ? Math.floor(tailLength) : Math.floor(maxVisible / 2)
+
+    if (head + tail > maxVisible) {
+      head = Math.ceil(maxVisible / 2)
+      tail = Math.floor(maxVisible / 2)
+    }
+
+    return `${plain.slice(0, head)}...${plain.slice(-tail)}`
   }
 
   function toPositiveInt(value, fallback) {
