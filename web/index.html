@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>New API 管理面板</title>
     <link rel="stylesheet" href="style.css" />
+    <link id="dynamicFavicon" rel="icon" type="image/png" href="/favicon.ico" />
     <meta name="description" content="轻量级 New API 管理面板" />
   </head>
   <body>
@@ -183,7 +184,7 @@
               <select id="modelApiKeySelect" class="select-sm">
                 <option value="">不使用 API Key（公开访问）</option>
               </select>
-              <button class="btn-ghost btn-sm" type="submit">拉取 /models</button>
+              <button class="btn-ghost btn-sm" type="submit">拉取模型列表</button>
             </form>
 
             <div class="table-responsive">
@@ -260,6 +261,7 @@
                     <th width="90">Prompt</th>
                     <th width="110">Completion</th>
                     <th width="90">耗时</th>
+                    <th width="90">首字</th>
                     <th>详情</th>
                   </tr>
                 </thead>

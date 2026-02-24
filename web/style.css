@@ -14,6 +14,7 @@
 
   --color-border: #334155;
   --color-border-hover: #475569;
+  --scrollbar-size: 10px;
 
   --color-success: #10b981;
   --color-warning: #f59e0b;
@@ -54,6 +55,27 @@ html[data-theme='light'] {
 /* Reset & Base */
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-hover) var(--color-bg-input);
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--color-bg-input);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-hover);
+  border-radius: 999px;
+  border: 2px solid var(--color-bg-input);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary);
 }
 
 html,
@@ -265,6 +287,42 @@ textarea {
   outline: none;
   font-size: 0.95rem;
   transition: all 0.2s;
+}
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 2.2rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%2394a3b8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 0.9rem;
+}
+
+html[data-theme='light'] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%23475569' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+input[type='datetime-local'] {
+  appearance: none;
+  -webkit-appearance: none;
+  color-scheme: dark;
+}
+
+html[data-theme='light'] input[type='datetime-local'] {
+  color-scheme: light;
+}
+
+input[type='datetime-local']::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.9;
+  filter: invert(73%) sepia(8%) saturate(531%) hue-rotate(176deg) brightness(93%) contrast(91%);
+}
+
+html[data-theme='light'] input[type='datetime-local']::-webkit-calendar-picker-indicator {
+  opacity: 0.72;
+  filter: none;
 }
 
 input:focus,
