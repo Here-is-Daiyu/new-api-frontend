@@ -34,6 +34,7 @@
   }
 
   const LOG_PREFETCH_REMAINING_ROWS = 20
+  const LOG_PAGE_SIZE = 50
 
   const ROLE_TEXT = {
     0: '访客',
@@ -56,9 +57,17 @@
       keyword: '',
       items: []
     },
+    model: {
+      items: [],
+      total: 0,
+      isLoading: false,
+      loaded: false,
+      selectedApiKey: '',
+      apiKeys: []
+    },
     log: {
       page: 1,
-      pageSize: 20,
+      pageSize: LOG_PAGE_SIZE,
       total: 0,
       items: [],
       hasMore: true,
@@ -96,6 +105,8 @@
     bindEvents()
     initTheme()
     syncTokenQuotaInputState()
+    renderModelApiKeyOptions()
+    renderModelTable()
     await loadServerConfig()
     initBaseURL()
     initApiUserId()
@@ -138,6 +149,13 @@
     dom.tokenPagerText = document.getElementById('tokenPagerText')
     dom.tokenTotalBadge = document.getElementById('tokenTotalBadge')
 
+    dom.modelPanel = document.getElementById('modelPanel')
+    dom.refreshModelBtn = document.getElementById('refreshModelBtn')
+    dom.modelFilterForm = document.getElementById('modelFilterForm')
+    dom.modelApiKeySelect = document.getElementById('modelApiKeySelect')
+    dom.modelTableBody = document.getElementById('modelTableBody')
+    dom.modelTotalBadge = document.getElementById('modelTotalBadge')
+
     dom.logPanel = document.getElementById('logPanel')
     dom.refreshLogBtn = document.getElementById('refreshLogBtn')
     dom.logFilterForm = document.getElementById('logFilterForm')
@@ -148,7 +166,6 @@
     dom.logStartInput = document.getElementById('logStartInput')
     dom.logEndInput = document.getElementById('logEndInput')
     dom.logGroupInput = document.getElementById('logGroupInput')
-    dom.logPageSizeSelect = document.getElementById('logPageSizeSelect')
     dom.logFilterResetBtn = document.getElementById('logFilterResetBtn')
     dom.logTableWrap = document.getElementById('logTableWrap')
     dom.logTableBody = document.getElementById('logTableBody')
@@ -201,7 +218,14 @@
     dom.tokenForm.addEventListener('submit', handleSaveToken)
     dom.tokenUnlimitedInput.addEventListener('change', syncTokenQuotaInputState)
 
-    dom.refreshLogBtn.addEventListener('click', () => loadLogs(true))
+    dom.refreshModelBtn.addEventListener('click', () => {
+      void refreshModels(true).catch(() => {})
+    })
+    dom.modelFilterForm.addEventListener('submit', handleModelFilter)
+
+    dom.refreshLogBtn.addEventListener('click', () => {
+      void loadLogs(true).catch(() => {})
+    })
     dom.logFilterForm.addEventListener('submit', handleLogFilter)
     dom.logFilterResetBtn.addEventListener('click', handleLogFilterReset)
     dom.logTableWrap.addEventListener('scroll', handleLogTableScroll)
@@ -334,6 +358,17 @@
     dom.loginCard.classList.remove('hidden')
     dom.dashboard.classList.add('hidden')
     closeTokenModal()
+
+    state.model.items = []
+    state.model.total = 0
+    state.model.isLoading = false
+    state.model.loaded = false
+    state.model.selectedApiKey = ''
+    state.model.apiKeys = []
+
+    renderModelApiKeyOptions()
+    renderModelTable()
+
     updateUserInfo()
   }
 
@@ -456,6 +491,10 @@
       panel.classList.toggle('hidden', !isActive)
       panel.classList.toggle('show', isActive)
     })
+
+    if (panelId === 'modelPanel' && state.user && !state.model.loaded) {
+      void refreshModels(true).catch(() => {})
+    }
   }
 
   function handleTokenFilter(event) {
@@ -540,7 +579,7 @@
     dom.tokenTableBody.innerHTML = state.token.items
       .map((token) => {
         const id = toNonNegativeInt(token.id, 0)
-        const keyText = escapeHtml(String(token.key || ''))
+        const keyText = escapeHtml(normalizeTokenKey(token.key))
         const nameText = escapeHtml(String(token.name || '-'))
 
                 let statusClass = 'badge'
@@ -635,7 +674,7 @@
       return
     }
 
-    const key = String(token.key || '').trim()
+    const key = normalizeTokenKey(token.key)
     if (!key) {
       showAlert('该 Token 没有可复制的 Key', 'warning')
       return
@@ -831,6 +870,187 @@
     }
   }
 
+  function handleModelFilter(event) {
+    event.preventDefault()
+    state.model.selectedApiKey = dom.modelApiKeySelect.value.trim()
+    void loadModels(true).catch(() => {})
+  }
+
+  async function refreshModels(showError) {
+    await loadModelApiKeyOptions(showError)
+    await loadModels(showError)
+    state.model.loaded = true
+  }
+
+  async function loadModelApiKeyOptions(showError) {
+    try {
+      const tokens = await fetchModelApiKeyTokens()
+      const options = []
+      const seenKeys = new Set()
+
+      tokens.forEach((token) => {
+        const key = normalizeTokenKey(token.key)
+        if (!key || seenKeys.has(key)) {
+          return
+        }
+
+        seenKeys.add(key)
+
+        const tokenId = toNonNegativeInt(token.id, 0)
+        const tokenName = String(token.name || '').trim() || `Token #${tokenId || '-'}`
+        options.push({
+          key,
+          label: `${tokenName} (${key})`
+        })
+      })
+
+      state.model.apiKeys = options
+      renderModelApiKeyOptions()
+    } catch (err) {
+      if (showError) {
+        showAlert('加载 API Key 列表失败：' + (err.message || '未知错误'), 'error', 0)
+      }
+      throw err
+    }
+  }
+
+  async function fetchModelApiKeyTokens() {
+    const pageSize = 100
+    const maxPages = 20
+    const allItems = []
+    let page = 1
+    let total = 0
+
+    while (page <= maxPages) {
+      const pageData = await apiRequest('/api/token/', {
+        query: {
+          p: page,
+          page_size: pageSize
+        }
+      })
+
+      const items = Array.isArray(pageData?.items) ? pageData.items : []
+      total = toNonNegativeInt(pageData?.total, total)
+
+      if (!items.length) {
+        break
+      }
+
+      allItems.push(...items)
+
+      if (total > 0 && allItems.length >= total) {
+        break
+      }
+
+      if (items.length < pageSize) {
+        break
+      }
+
+      page += 1
+    }
+
+    return allItems
+  }
+
+  function renderModelApiKeyOptions() {
+    if (!dom.modelApiKeySelect) {
+      return
+    }
+
+    const defaultOption = '<option value="">不使用 API Key（公开访问）</option>'
+    const optionHTML = state.model.apiKeys
+      .map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`)
+      .join('')
+
+    dom.modelApiKeySelect.innerHTML = defaultOption + optionHTML
+
+    const selectedExists =
+      state.model.selectedApiKey &&
+      state.model.apiKeys.some((item) => item.key === state.model.selectedApiKey)
+
+    if (!selectedExists) {
+      state.model.selectedApiKey = ''
+    }
+
+    dom.modelApiKeySelect.value = state.model.selectedApiKey
+  }
+
+  async function loadModels(showError) {
+    if (state.model.isLoading) {
+      return
+    }
+
+    state.model.isLoading = true
+    renderModelTable({ loading: true })
+
+    try {
+      const headers = {}
+      if (state.model.selectedApiKey) {
+        headers.Authorization = `Bearer ${state.model.selectedApiKey}`
+      }
+
+      const data = await apiRequest('/models', { headers })
+      const items = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : []
+
+      state.model.items = items
+      state.model.total = items.length
+      dom.modelTotalBadge.textContent = String(state.model.total)
+      renderModelTable()
+    } catch (err) {
+      state.model.items = []
+      state.model.total = 0
+      dom.modelTotalBadge.textContent = '0'
+      renderModelTable()
+
+      if (showError) {
+        showAlert('加载模型失败：' + (err.message || '未知错误'), 'error', 0)
+      }
+      throw err
+    } finally {
+      state.model.isLoading = false
+    }
+  }
+
+  function renderModelTable(options = {}) {
+    if (!dom.modelTableBody) {
+      return
+    }
+
+    if (dom.modelTotalBadge) {
+      dom.modelTotalBadge.textContent = String(state.model.total)
+    }
+
+    if (options.loading) {
+      dom.modelTableBody.innerHTML = '<tr><td colspan="4" class="text-center">模型加载中...</td></tr>'
+      return
+    }
+
+    if (!state.model.items.length) {
+      dom.modelTableBody.innerHTML = '<tr><td colspan="4" class="text-center">暂无模型数据</td></tr>'
+      return
+    }
+
+    dom.modelTableBody.innerHTML = state.model.items
+      .map((item, index) => {
+        const modelID = escapeHtml(String(item?.id || '-'))
+        const ownedBy = escapeHtml(String(item?.owned_by || '-'))
+        const endpointTypes = Array.isArray(item?.supported_endpoint_types)
+          ? item.supported_endpoint_types.map((v) => String(v || '').trim()).filter(Boolean)
+          : []
+        const endpointText = endpointTypes.length ? endpointTypes.join(', ') : '-'
+
+        return `
+          <tr>
+            <td><code class="mono text-sub">${index + 1}</code></td>
+            <td><code class="mono model-id">${modelID}</code></td>
+            <td>${ownedBy}</td>
+            <td>${escapeHtml(endpointText)}</td>
+          </tr>
+        `
+      })
+      .join('')
+  }
+
   function handleLogFilter(event) {
     event.preventDefault()
     void loadLogs(true, { resetScroll: true })
@@ -844,7 +1064,6 @@
     dom.logStartInput.value = ''
     dom.logEndInput.value = ''
     dom.logGroupInput.value = ''
-    dom.logPageSizeSelect.value = '20'
 
     void loadLogs(true, { resetScroll: true })
   }
@@ -875,7 +1094,7 @@
   }
 
   function collectLogFiltersFromForm() {
-    state.log.pageSize = toPositiveInt(dom.logPageSizeSelect.value, 20)
+    state.log.pageSize = LOG_PAGE_SIZE
     state.log.filters.type = dom.logTypeSelect.value
     state.log.filters.modelName = dom.logModelInput.value.trim()
     state.log.filters.tokenName = dom.logTokenNameInput.value.trim()
@@ -1152,7 +1371,8 @@
     const url = buildProxyURL(path, query)
 
     const headers = {
-      'X-Base-URL': baseURL
+      'X-Base-URL': baseURL,
+      ...(options.headers || {})
     }
 
     if (state.apiUserId) {
@@ -1316,6 +1536,19 @@
       button.innerHTML = button.dataset.originalHtml
       delete button.dataset.originalHtml
     }
+  }
+
+  function normalizeTokenKey(raw) {
+    const key = String(raw || '').trim()
+    if (!key) {
+      return ''
+    }
+
+    if (/^sk-/i.test(key)) {
+      return key
+    }
+
+    return `sk-${key}`
   }
 
   function escapeHtml(value) {

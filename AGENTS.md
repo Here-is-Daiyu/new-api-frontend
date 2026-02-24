@@ -27,6 +27,43 @@
 - 静态资源：`embed` 内嵌到二进制。
 - 部署：直接运行可执行文件。
 
+## 测试约定
+
+- 本地没装环境，全部测试用 GitHub Action 进行。
+
+## 推送部署约定（Windows 本地 + VPS）
+
+1. 使用 GitHub Actions 产物进行部署，优先使用 Linux 对应架构压缩包。
+2. 本地通过 SSH 别名 `vps` 连接目标服务器。
+3. **过程性文件统一放在 `/tmp`**（上传、解压、临时日志）。
+4. 最终二进制路径固定为：`/opt/newapi-modern-dashboard/newapi-modern-dashboard`。
+5. systemd 服务名固定为：`newapi-modern-dashboard`。
+6. 当前默认监听端口：`12002`。
+
+### 标准推送部署命令（覆盖升级）
+
+```powershell
+$zip = "newapi-modern-dashboard-linux-amd64.zip"
+scp "$zip" "vps:/tmp/"
+ssh "vps" "set -e
+rm -rf /tmp/newapi-modern-dashboard
+mkdir -p /tmp/newapi-modern-dashboard
+unzip -o /tmp/newapi-modern-dashboard-linux-amd64.zip -d /tmp/newapi-modern-dashboard >/tmp/newapi-modern-dashboard-unzip.log
+install -d /opt/newapi-modern-dashboard
+install -m 0755 /tmp/newapi-modern-dashboard/newapi-modern-dashboard-linux-amd64 /opt/newapi-modern-dashboard/newapi-modern-dashboard
+systemctl restart newapi-modern-dashboard
+systemctl --no-pager --full status newapi-modern-dashboard
+curl -fsS http://127.0.0.1:12002/healthz
+"
+```
+
+### 服务状态与日志检查
+
+```bash
+systemctl status newapi-modern-dashboard
+journalctl -u newapi-modern-dashboard -f
+```
+
 ## API 对接约定（基于 New API 源码）
 
 - 登录：`POST /api/user/login`，body:

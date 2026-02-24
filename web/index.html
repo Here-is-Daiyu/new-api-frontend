@@ -102,6 +102,10 @@
               <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
               令牌管理
             </button>
+            <button class="tab-btn" data-tab="modelPanel" type="button">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M12 2l9 4.5-9 4.5-9-4.5L12 2z"></path><path d="M3 12l9 4.5 9-4.5"></path><path d="M3 17.5L12 22l9-4.5"></path></svg>
+              可用模型
+            </button>
             <button class="tab-btn" data-tab="logPanel" type="button">
               <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
               日志审计
@@ -165,6 +169,40 @@
             </div>
           </section>
 
+          <!-- 模型面板 -->
+          <section id="modelPanel" class="tab-panel card-content hidden">
+            <div class="panel-header">
+              <div class="panel-title">
+                <h3>可用模型</h3>
+                <span class="badge-count" id="modelTotalBadge">-</span>
+              </div>
+              <button id="refreshModelBtn" class="btn-secondary btn-sm" type="button">刷新</button>
+            </div>
+
+            <form id="modelFilterForm" class="filter-bar">
+              <select id="modelApiKeySelect" class="select-sm">
+                <option value="">不使用 API Key（公开访问）</option>
+              </select>
+              <button class="btn-ghost btn-sm" type="submit">拉取 /models</button>
+            </form>
+
+            <div class="table-responsive">
+              <table class="modern-table">
+                <thead>
+                  <tr>
+                    <th width="60">序号</th>
+                    <th>模型 ID</th>
+                    <th width="180">所属方</th>
+                    <th>支持端点</th>
+                  </tr>
+                </thead>
+                <tbody id="modelTableBody">
+                  <!-- JS 填充 -->
+                </tbody>
+              </table>
+            </div>
+          </section>
+
           <!-- 日志面板 -->
           <section id="logPanel" class="tab-panel card-content hidden">
             <div class="panel-header">
@@ -205,10 +243,6 @@
               <input id="logStartInput" class="input-sm" type="datetime-local" />
               <input id="logEndInput" class="input-sm" type="datetime-local" />
               <input id="logGroupInput" class="input-sm" type="text" placeholder="分组" />
-              <select id="logPageSizeSelect" class="input-sm">
-                <option value="20" selected>20条</option>
-                <option value="50">50条</option>
-              </select>
               <div class="filter-actions">
                 <button class="btn-primary btn-sm" type="submit">筛选</button>
                 <button id="logFilterResetBtn" class="btn-ghost btn-sm" type="button">重置</button>
