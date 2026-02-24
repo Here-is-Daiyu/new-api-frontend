@@ -119,6 +119,7 @@
     dom.baseUrlInput = document.getElementById('baseUrlInput')
     dom.saveBaseUrlBtn = document.getElementById('saveBaseUrlBtn')
     dom.versionText = document.getElementById('versionText')
+    dom.dynamicFavicon = document.getElementById('dynamicFavicon')
 
     dom.alertBox = document.getElementById('alertBox')
 
@@ -306,6 +307,7 @@
     }
 
     dom.baseUrlInput.value = state.baseURL
+    updateFavicon()
   }
 
   function handleSaveBaseURL() {
@@ -316,6 +318,7 @@
           state.baseURL = state.defaultBaseURL
           safeStorageRemove(STORAGE_KEYS.baseURL)
           dom.baseUrlInput.value = state.baseURL
+          updateFavicon()
           showAlert('已恢复为默认 BaseURL', 'info')
           return
         }
@@ -326,6 +329,7 @@
       state.baseURL = normalized
       dom.baseUrlInput.value = normalized
       safeStorageSet(STORAGE_KEYS.baseURL, normalized)
+      updateFavicon()
       showAlert('BaseURL 保存成功', 'success')
     } catch (err) {
       showAlert(err.message || 'BaseURL 无效', 'error', 0)
@@ -989,8 +993,7 @@
         headers.Authorization = `Bearer ${state.model.selectedApiKey}`
       }
 
-      const data = await apiRequest('/models', { headers })
-      const items = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : []
+      const { items } = await requestModelList(headers)
 
       state.model.items = items
       state.model.total = items.length
@@ -1009,6 +1012,58 @@
     } finally {
       state.model.isLoading = false
     }
+  }
+
+  async function requestModelList(headers) {
+    let v1Payload = null
+    let fallbackToModels = false
+
+    try {
+      v1Payload = await apiRequest('/v1/models', { headers, rawResponse: true })
+    } catch (err) {
+      const message = String(err?.message || '')
+      if (message.includes('响应解析失败')) {
+        fallbackToModels = true
+      } else {
+        throw err
+      }
+    }
+
+    if (!fallbackToModels) {
+      const v1Items = extractModelItemsFromPayload(v1Payload)
+      if (Array.isArray(v1Items)) {
+        return { items: v1Items, path: '/v1/models' }
+      }
+      fallbackToModels = true
+    }
+
+    const fallbackPayload = await apiRequest('/models', { headers, rawResponse: true })
+    const fallbackItems = extractModelItemsFromPayload(fallbackPayload)
+    if (Array.isArray(fallbackItems)) {
+      return { items: fallbackItems, path: '/models' }
+    }
+
+    throw new Error('/v1/models 解析失败，/models 解析也失败')
+  }
+
+  function extractModelItemsFromPayload(payload) {
+    if (Array.isArray(payload)) {
+      return payload
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return null
+    }
+
+    if (Array.isArray(payload.data)) {
+      return payload.data
+    }
+
+    if (payload.data && Array.isArray(payload.data.data)) {
+      return payload.data.data
+    }
+
+    return null
   }
 
   function renderModelTable(options = {}) {
@@ -1265,7 +1320,7 @@
 
     if (!append) {
       if (!state.log.items.length) {
-        dom.logTableBody.innerHTML = '<tr><td colspan="8" class="text-center">暂无数据</td></tr>'
+        dom.logTableBody.innerHTML = '<tr><td colspan="9" class="text-center">暂无数据</td></tr>'
         return
       }
 
@@ -1277,7 +1332,7 @@
       return
     }
 
-    const placeholderRow = dom.logTableBody.querySelector('td[colspan="8"]')
+    const placeholderRow = dom.logTableBody.querySelector('td[colspan="9"]')
     if (placeholderRow) {
       dom.logTableBody.innerHTML = ''
     }
@@ -1297,6 +1352,7 @@
     const promptTokens = toNonNegativeInt(item.prompt_tokens, 0)
     const completionTokens = toNonNegativeInt(item.completion_tokens, 0)
     const useTime = toNonNegativeInt(item.use_time, 0)
+    const firstTokenTimeText = formatFirstTokenTime(item)
     const content = String(item.content || '')
     const contentFull = escapeHtml(content)
 
@@ -1322,9 +1378,67 @@
         <td>${promptTokens}</td>
         <td>${completionTokens}</td>
         <td class="text-sub">${useTime}s</td>
+        <td class="text-sub">${escapeHtml(firstTokenTimeText)}</td>
         <td>${detailHTML}</td>
       </tr>
     `
+  }
+
+  function formatFirstTokenTime(logItem) {
+    const ms = extractFirstTokenMs(logItem)
+    if (ms === null) {
+      return '-'
+    }
+
+    if (ms >= 1000) {
+      return `${(ms / 1000).toFixed(2)}s`
+    }
+
+    return `${ms}ms`
+  }
+
+  function extractFirstTokenMs(logItem) {
+    const direct = toFiniteNumber(logItem?.frt)
+    if (direct !== null && direct >= 0) {
+      return Math.round(direct)
+    }
+
+    const other = parseLogOther(logItem?.other)
+    const fromOther = toFiniteNumber(other?.frt)
+    if (fromOther === null || fromOther < 0) {
+      return null
+    }
+
+    return Math.round(fromOther)
+  }
+
+  function parseLogOther(rawOther) {
+    if (!rawOther) {
+      return null
+    }
+
+    if (typeof rawOther === 'object') {
+      return rawOther
+    }
+
+    try {
+      const parsed = JSON.parse(String(rawOther))
+      if (parsed && typeof parsed === 'object') {
+        return parsed
+      }
+    } catch {
+      // ignore parse error
+    }
+
+    return null
+  }
+
+  function toFiniteNumber(value) {
+    const num = Number(value)
+    if (!Number.isFinite(num)) {
+      return null
+    }
+    return num
   }
 
   function updateLogLoadState() {
@@ -1366,6 +1480,7 @@
     const method = options.method || 'GET'
     const query = options.query || {}
     const body = options.body
+    const rawResponse = Boolean(options.rawResponse)
 
     const baseURL = getActiveBaseURL()
     const url = buildProxyURL(path, query)
@@ -1397,11 +1512,18 @@
       throw new Error(payload?.message || `HTTP ${res.status}`)
     }
 
+    if (payload === null) {
+      if (rawResponse) {
+        throw new Error('响应解析失败')
+      }
+      return null
+    }
+
     if (payload && payload.success === false) {
       throw new Error(payload.message || '请求失败')
     }
 
-    return payload?.data
+    return rawResponse ? payload : payload?.data
   }
 
   function buildProxyURL(path, query) {
@@ -1427,6 +1549,7 @@
       if (state.defaultBaseURL) {
         state.baseURL = state.defaultBaseURL
         dom.baseUrlInput.value = state.baseURL
+        updateFavicon()
         return state.baseURL
       }
       throw new Error('请先配置 BaseURL')
@@ -1436,11 +1559,31 @@
     state.baseURL = normalized
     dom.baseUrlInput.value = normalized
     safeStorageSet(STORAGE_KEYS.baseURL, normalized)
+    updateFavicon()
     return normalized
   }
 
   function getActiveBaseURL() {
     return syncBaseURLFromInput()
+  }
+
+  function updateFavicon() {
+    if (!dom.dynamicFavicon) {
+      return
+    }
+
+    const activeBase = String(state.baseURL || '').trim()
+    if (!activeBase) {
+      dom.dynamicFavicon.href = '/favicon.ico'
+      return
+    }
+
+    try {
+      const normalized = normalizeBaseURL(activeBase)
+      dom.dynamicFavicon.href = `${normalized}/favicon.png`
+    } catch {
+      dom.dynamicFavicon.href = '/favicon.ico'
+    }
   }
 
   function initApiUserId() {
