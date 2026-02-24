@@ -131,11 +131,7 @@
 
             <form id="tokenFilterForm" class="filter-bar">
               <input id="tokenKeywordInput" class="input-sm" type="text" placeholder="搜索名称或 Key..." />
-              <select id="tokenPageSizeSelect" class="select-sm">
-                <option value="10">10条/页</option>
-                <option value="20">20条/页</option>
-                <option value="50">50条/页</option>
-              </select>
+              <div id="tokenPageSizeSelect" class="custom-select custom-select-sm" aria-label="Token 每页条数下拉"></div>
               <button class="btn-ghost btn-sm" type="submit">查询</button>
               <button id="tokenFilterResetBtn" class="btn-ghost btn-sm" type="button">重置</button>
             </form>
@@ -229,12 +225,12 @@
             <form id="logFilterForm" class="filter-grid">
               <div id="logTypeSelect" class="custom-select custom-select-sm" aria-label="日志类型下拉"></div>
               <div id="logTokenNameInput" class="custom-select custom-select-sm" aria-label="日志 Token 下拉"></div>
-              <input id="logModelInput" class="input-sm" type="text" list="logModelList" placeholder="模型（可下拉或手动输入）" />
-              <datalist id="logModelList"></datalist>
+              <div id="logModelSelect" class="custom-select custom-select-sm" aria-label="日志模型下拉"></div>
               <input id="logRequestIdInput" class="input-sm" type="text" placeholder="Req ID" />
-              <input id="logStartInput" class="input-sm" type="datetime-local" />
-              <input id="logEndInput" class="input-sm" type="datetime-local" />
-              <input id="logGroupInput" class="input-sm" type="text" placeholder="分组" />
+              <input id="logStartInput" class="input-sm" type="text" placeholder="开始时间（如 2026-02-24 13:00:00）" />
+              <input id="logEndInput" class="input-sm" type="text" placeholder="结束时间（如 2026-02-24 14:00:00）" />
+              <div id="logGroupSelect" class="custom-select custom-select-sm" aria-label="日志分组下拉"></div>
+              <p id="logGroupHint" class="filter-hint hidden"></p>
               <div class="filter-actions">
                 <button class="btn-primary btn-sm" type="submit">筛选</button>
                 <button id="logFilterResetBtn" class="btn-ghost btn-sm" type="button">重置</button>

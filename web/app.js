@@ -43,6 +43,12 @@
     { value: '6', label: '退款' }
   ]
 
+  const TOKEN_PAGE_SIZE_OPTIONS = [
+    { value: '10', label: '10条/页' },
+    { value: '20', label: '20条/页' },
+    { value: '50', label: '50条/页' }
+  ]
+
   const customSelectInstances = new Map()
   let customSelectGlobalEventsBound = false
 
@@ -106,7 +112,9 @@
       initPromise: null,
       tokenOptions: [],
       tokenKeyByName: {},
-      modelSuggestions: []
+      modelSuggestions: [],
+      groupOptions: [],
+      groupHint: ''
     }
   }
 
@@ -124,11 +132,13 @@
     bindEvents()
     initTheme()
     syncTokenQuotaInputState()
+    renderTokenPageSizeOptions()
     renderModelApiKeyOptions()
     renderModelTable()
     renderLogTypeOptions()
     renderLogTokenOptions()
     renderLogModelSuggestions()
+    renderLogGroupOptions()
     await loadServerConfig()
     initBaseURL()
     initApiUserId()
@@ -184,12 +194,12 @@
     dom.logFilterForm = document.getElementById('logFilterForm')
     dom.logTypeSelect = document.getElementById('logTypeSelect')
     dom.logTokenNameInput = document.getElementById('logTokenNameInput')
-    dom.logModelInput = document.getElementById('logModelInput')
-    dom.logModelList = document.getElementById('logModelList')
+    dom.logModelSelect = document.getElementById('logModelSelect')
     dom.logRequestIdInput = document.getElementById('logRequestIdInput')
     dom.logStartInput = document.getElementById('logStartInput')
     dom.logEndInput = document.getElementById('logEndInput')
-    dom.logGroupInput = document.getElementById('logGroupInput')
+    dom.logGroupSelect = document.getElementById('logGroupSelect')
+    dom.logGroupHint = document.getElementById('logGroupHint')
     dom.logFilterResetBtn = document.getElementById('logFilterResetBtn')
     dom.logTableWrap = document.getElementById('logTableWrap')
     dom.logTableBody = document.getElementById('logTableBody')
@@ -215,9 +225,12 @@
     dom.tokenCrossGroupRetryInput = document.getElementById('tokenCrossGroupRetryInput')
     dom.saveTokenBtn = document.getElementById('saveTokenBtn')
 
+    initCustomSelect(dom.tokenPageSizeSelect)
     initCustomSelect(dom.modelApiKeySelect)
     initCustomSelect(dom.logTypeSelect)
     initCustomSelect(dom.logTokenNameInput)
+    initCustomSelect(dom.logModelSelect)
+    initCustomSelect(dom.logGroupSelect)
   }
 
   function bindEvents() {
@@ -253,14 +266,26 @@
     setCustomSelectOnChange(dom.modelApiKeySelect, () => {
       handleModelApiKeyChange()
     })
+    setCustomSelectOnChange(dom.tokenPageSizeSelect, () => {
+      syncSelectTitle(dom.tokenPageSizeSelect)
+    })
 
     dom.refreshLogBtn.addEventListener('click', () => {
-      void loadLogs(true).catch(() => {})
+      void (async () => {
+        await Promise.allSettled([refreshLogModelSuggestions(false), refreshLogGroupOptions(false)])
+        await loadLogs(true)
+      })().catch(() => {})
     })
     dom.logFilterForm.addEventListener('submit', handleLogFilter)
     dom.logFilterResetBtn.addEventListener('click', handleLogFilterReset)
     setCustomSelectOnChange(dom.logTokenNameInput, () => {
       handleLogTokenChange()
+    })
+    setCustomSelectOnChange(dom.logModelSelect, () => {
+      syncSelectTitle(dom.logModelSelect)
+    })
+    setCustomSelectOnChange(dom.logGroupSelect, () => {
+      syncSelectTitle(dom.logGroupSelect)
     })
     dom.logTableWrap.addEventListener('scroll', handleLogTableScroll)
     dom.logLoadState.addEventListener('click', handleLogLoadStateClick)
@@ -363,6 +388,9 @@
       dom.baseUrlInput.value = normalized
       safeStorageSet(STORAGE_KEYS.baseURL, normalized)
       updateFavicon()
+      if (state.user) {
+        void Promise.allSettled([refreshLogModelSuggestions(false), refreshLogGroupOptions(false)]).catch(() => {})
+      }
       showAlert('BaseURL 保存成功', 'success')
     } catch (err) {
       showAlert(err.message || 'BaseURL 无效', 'error', 0)
@@ -417,23 +445,27 @@
     state.log.tokenOptions = []
     state.log.tokenKeyByName = {}
     state.log.modelSuggestions = []
+    state.log.groupOptions = []
+    state.log.groupHint = ''
     state.log.stat.quota = 0
     state.log.stat.rpm = 0
     state.log.stat.tpm = 0
 
     setCustomSelectValue(dom.logTypeSelect, '0', { silent: true })
     setCustomSelectValue(dom.logTokenNameInput, '', { silent: true })
-    dom.logModelInput.value = ''
+    setCustomSelectValue(dom.logModelSelect, '', { silent: true })
     dom.logRequestIdInput.value = ''
     dom.logStartInput.value = ''
     dom.logEndInput.value = ''
-    dom.logGroupInput.value = ''
+    setCustomSelectValue(dom.logGroupSelect, '', { silent: true })
 
+    renderTokenPageSizeOptions()
     renderModelApiKeyOptions()
     renderModelTable()
     renderLogTypeOptions()
     renderLogTokenOptions()
     renderLogModelSuggestions()
+    renderLogGroupOptions()
     renderLogStat()
     renderLogTable()
     updateLogLoadState()
@@ -574,14 +606,14 @@
   function handleTokenFilter(event) {
     event.preventDefault()
     state.token.keyword = dom.tokenKeywordInput.value.trim()
-    state.token.pageSize = toPositiveInt(dom.tokenPageSizeSelect.value, 10)
+    state.token.pageSize = toPositiveInt(getCustomSelectValue(dom.tokenPageSizeSelect), 10)
     state.token.page = 1
     void loadTokens(true).catch(() => {})
   }
 
   function handleTokenFilterReset() {
     dom.tokenKeywordInput.value = ''
-    dom.tokenPageSizeSelect.value = '10'
+    setCustomSelectValue(dom.tokenPageSizeSelect, '10', { silent: true })
     state.token.keyword = ''
     state.token.pageSize = 10
     state.token.page = 1
@@ -1208,13 +1240,14 @@
   function handleLogFilterReset() {
     setCustomSelectValue(dom.logTypeSelect, '0', { silent: true })
     setCustomSelectValue(dom.logTokenNameInput, '', { silent: true })
-    dom.logModelInput.value = ''
+    setCustomSelectValue(dom.logModelSelect, '', { silent: true })
     dom.logRequestIdInput.value = ''
     dom.logStartInput.value = ''
     dom.logEndInput.value = ''
-    dom.logGroupInput.value = ''
+    setCustomSelectValue(dom.logGroupSelect, '', { silent: true })
 
     void refreshLogModelSuggestions(false).catch(() => {})
+    void refreshLogGroupOptions(false).catch(() => {})
     void loadLogs(true, { resetScroll: true })
   }
 
@@ -1261,7 +1294,7 @@
       // ignore token option errors, 日志仍可按当前条件查询
     }
 
-    await refreshLogModelSuggestions(false)
+    await Promise.allSettled([refreshLogModelSuggestions(false), refreshLogGroupOptions(false)])
     await loadLogs(showError, { resetScroll: true })
   }
 
@@ -1298,6 +1331,26 @@
       }
       throw err
     }
+  }
+
+  function renderTokenPageSizeOptions() {
+    if (!dom.tokenPageSizeSelect) {
+      return
+    }
+
+    const currentValue = getCustomSelectValue(dom.tokenPageSizeSelect).trim() || String(state.token.pageSize || 10)
+    const options = TOKEN_PAGE_SIZE_OPTIONS.map((item) => ({
+      value: item.value,
+      label: item.label,
+      title: item.label
+    }))
+
+    setCustomSelectOptions(dom.tokenPageSizeSelect, options)
+
+    const exists = options.some((item) => item.value === currentValue)
+    const fallback = String(state.token.pageSize || 10)
+    setCustomSelectValue(dom.tokenPageSizeSelect, exists ? currentValue : fallback, { silent: true })
+    syncSelectTitle(dom.tokenPageSizeSelect)
   }
 
   function renderLogTypeOptions() {
@@ -1393,13 +1446,143 @@
   }
 
   function renderLogModelSuggestions() {
-    if (!dom.logModelList) {
+    if (!dom.logModelSelect) {
       return
     }
 
-    dom.logModelList.innerHTML = state.log.modelSuggestions
-      .map((modelId) => `<option value="${escapeHtml(modelId)}"></option>`)
-      .join('')
+    const currentValue = getCustomSelectValue(dom.logModelSelect).trim()
+    const options = [
+      {
+        value: '',
+        label: '全部模型',
+        title: '全部模型'
+      },
+      ...state.log.modelSuggestions.map((modelId) => ({
+        value: modelId,
+        label: truncateMiddle(modelId, 44, 24, 16),
+        title: modelId
+      }))
+    ]
+
+    setCustomSelectOptions(dom.logModelSelect, options)
+
+    const exists = state.log.modelSuggestions.some((item) => item === currentValue)
+    setCustomSelectValue(dom.logModelSelect, exists ? currentValue : '', { silent: true })
+    syncSelectTitle(dom.logModelSelect)
+  }
+
+  async function refreshLogGroupOptions(showError) {
+    const currentValue = getCustomSelectValue(dom.logGroupSelect).trim()
+
+    try {
+      const groups = await fetchLogGroupOptionsFromBaseURL()
+      state.log.groupOptions = groups
+      state.log.groupHint = groups.length
+        ? ''
+        : '当前 BaseURL 暂未返回可选分组，已保留“全部分组”筛选。'
+      renderLogGroupOptions(currentValue)
+    } catch (err) {
+      state.log.groupOptions = []
+      state.log.groupHint = '当前 BaseURL 未能获取分组列表，日志仍可正常筛选。'
+      renderLogGroupOptions(currentValue)
+
+      if (showError) {
+        showAlert('加载日志分组下拉失败：' + (err.message || '未知错误'), 'warning', 0)
+      }
+    }
+  }
+
+  async function fetchLogGroupOptionsFromBaseURL() {
+    const candidates = ['/api/user/self/groups', '/api/user/groups', '/api/group/']
+    let hasSuccessResponse = false
+    let lastError = null
+
+    for (const path of candidates) {
+      try {
+        const data = await apiRequest(path)
+        hasSuccessResponse = true
+
+        const groups = extractGroupNamesFromPayload(data)
+        if (groups.length) {
+          return groups
+        }
+      } catch (err) {
+        lastError = err
+      }
+    }
+
+    if (hasSuccessResponse) {
+      return []
+    }
+
+    if (lastError) {
+      throw lastError
+    }
+
+    return []
+  }
+
+  function extractGroupNamesFromPayload(payload) {
+    const names = []
+
+    if (Array.isArray(payload)) {
+      payload.forEach((item) => {
+        const name = String(item || '').trim()
+        if (name) {
+          names.push(name)
+        }
+      })
+    } else if (payload && typeof payload === 'object') {
+      Object.keys(payload).forEach((key) => {
+        const name = String(key || '').trim()
+        if (name) {
+          names.push(name)
+        }
+      })
+    } else if (typeof payload === 'string') {
+      const name = payload.trim()
+      if (name) {
+        names.push(name)
+      }
+    }
+
+    const unique = Array.from(new Set(names))
+    unique.sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    return unique
+  }
+
+  function renderLogGroupOptions(preferredValue = null) {
+    if (!dom.logGroupSelect) {
+      return
+    }
+
+    const currentValue =
+      preferredValue === null ? getCustomSelectValue(dom.logGroupSelect).trim() : String(preferredValue || '').trim()
+
+    const options = [
+      {
+        value: '',
+        label: '全部分组',
+        title: '全部分组'
+      },
+      ...state.log.groupOptions.map((groupName) => ({
+        value: groupName,
+        label: truncateMiddle(groupName, 34, 18, 12),
+        title: groupName
+      }))
+    ]
+
+    setCustomSelectOptions(dom.logGroupSelect, options)
+
+    const exists = state.log.groupOptions.some((item) => item === currentValue)
+    setCustomSelectValue(dom.logGroupSelect, exists ? currentValue : '', { silent: true })
+    syncSelectTitle(dom.logGroupSelect)
+
+    if (dom.logGroupHint) {
+      const hintText = String(state.log.groupHint || '').trim()
+      dom.logGroupHint.textContent = hintText
+      dom.logGroupHint.classList.toggle('hidden', !hintText)
+    }
   }
 
   function handleLogTableScroll() {
@@ -1430,12 +1613,12 @@
   function collectLogFiltersFromForm() {
     state.log.pageSize = LOG_PAGE_SIZE
     state.log.filters.type = getCustomSelectValue(dom.logTypeSelect)
-    state.log.filters.modelName = dom.logModelInput.value.trim()
+    state.log.filters.modelName = getCustomSelectValue(dom.logModelSelect).trim()
     state.log.filters.tokenName = getCustomSelectValue(dom.logTokenNameInput).trim()
     state.log.filters.requestId = dom.logRequestIdInput.value.trim()
     state.log.filters.startTime = dom.logStartInput.value.trim()
     state.log.filters.endTime = dom.logEndInput.value.trim()
-    state.log.filters.group = dom.logGroupInput.value.trim()
+    state.log.filters.group = getCustomSelectValue(dom.logGroupSelect).trim()
   }
 
   function buildLogQuery(withPagination) {
@@ -2332,12 +2515,49 @@
       return 0
     }
 
-    const ms = Date.parse(text)
-    if (!Number.isFinite(ms) || Number.isNaN(ms) || ms <= 0) {
+    if (/^\d{10,13}$/.test(text)) {
+      const num = Number(text)
+      if (!Number.isFinite(num) || Number.isNaN(num) || num <= 0) {
+        return 0
+      }
+      return text.length === 13 ? Math.floor(num / 1000) : Math.floor(num)
+    }
+
+    const normalized = text.replaceAll('/', '-').replace(/\s+/, ' ')
+    const directMs = Date.parse(normalized)
+    if (Number.isFinite(directMs) && !Number.isNaN(directMs) && directMs > 0) {
+      return Math.floor(directMs / 1000)
+    }
+
+    const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2})(?::(\d{1,2}))?(?::(\d{1,2}))?)?$/)
+    if (!match) {
       return 0
     }
 
-    return Math.floor(ms / 1000)
+    const year = Number.parseInt(match[1], 10)
+    const month = Number.parseInt(match[2], 10)
+    const day = Number.parseInt(match[3], 10)
+    const hour = Number.parseInt(match[4] || '0', 10)
+    const minute = Number.parseInt(match[5] || '0', 10)
+    const second = Number.parseInt(match[6] || '0', 10)
+
+    const date = new Date(year, month - 1, day, hour, minute, second)
+    if (Number.isNaN(date.getTime())) {
+      return 0
+    }
+
+    if (
+      date.getFullYear() !== year ||
+      date.getMonth() !== month - 1 ||
+      date.getDate() !== day ||
+      date.getHours() !== hour ||
+      date.getMinutes() !== minute ||
+      date.getSeconds() !== second
+    ) {
+      return 0
+    }
+
+    return Math.floor(date.getTime() / 1000)
   }
 
   function calcTotalPage(total, pageSize) {
