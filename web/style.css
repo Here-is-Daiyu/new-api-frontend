@@ -216,6 +216,12 @@ html[data-theme='light'] .navbar {
   color: var(--color-text-sub);
 }
 
+.filter-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-sub);
+}
+
 .text-center {
   text-align: center;
 }
@@ -862,15 +868,35 @@ select.input-sm {
   font-family: inherit;
 }
 
+#tokenFilterForm #tokenPageSizeSelect {
+  min-width: 110px;
+  flex: 0 0 120px;
+}
+
 #logFilterForm #logTypeSelect,
-#logFilterForm #logTokenNameInput {
+#logFilterForm #logTokenNameInput,
+#logFilterForm #logModelSelect,
+#logFilterForm #logGroupSelect {
   min-width: 0;
+}
+
+#logFilterForm #logModelSelect .custom-select-dropdown {
+  max-height: 220px;
+}
+
+#logFilterForm #logModelSelect .custom-select-trigger,
+#logFilterForm #logModelSelect .custom-select-option {
+  font-family: var(--font-mono);
 }
 
 .filter-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   align-items: center;
+}
+
+#logFilterForm #logGroupHint {
+  grid-column: 1 / -1;
 }
 
 .filter-actions {
