@@ -12,6 +12,8 @@
 4. **统一 API 访问层**，避免重复请求逻辑（DRY）。
 5. 所有 API 请求都通过本地 `/proxy` 反向代理，避免浏览器跨域与 Cookie 问题。
 6. 涉及 New API 字段来源或行为判断时，先在仓库源码中搜索，并在回复里明确告知对应文件路径与结论（“要在仓库里搜告诉我”）。
+7. 每次开始实现功能前，先更新 `AGENTS.md` 明确“本次要实现的功能范围/任务项”。
+8. 每次功能实现完成后，及时更新 `README.md`（运行方式、功能说明、已支持能力与注意事项）。
 
 ## 功能范围（本次必须完成）
 
@@ -67,6 +69,7 @@ journalctl -u newapi-modern-dashboard -f
 
 ## API 对接约定（基于 New API 源码）
 
+- 接口参考（仓库树）：`https://api.github.com/repos/QuantumNous/new-api/git/trees/main?recursive=1`
 - 登录：`POST /api/user/login`，body:
   - `username`（可填邮箱或用户名）
   - `password`
