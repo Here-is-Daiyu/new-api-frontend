@@ -87,7 +87,11 @@
         quota: 0,
         rpm: 0,
         tpm: 0
-      }
+      },
+      loaded: false,
+      tokenOptions: [],
+      tokenKeyByName: {},
+      modelSuggestions: []
     }
   }
 
@@ -107,6 +111,8 @@
     syncTokenQuotaInputState()
     renderModelApiKeyOptions()
     renderModelTable()
+    renderLogTokenOptions()
+    renderLogModelSuggestions()
     await loadServerConfig()
     initBaseURL()
     initApiUserId()
@@ -161,8 +167,9 @@
     dom.refreshLogBtn = document.getElementById('refreshLogBtn')
     dom.logFilterForm = document.getElementById('logFilterForm')
     dom.logTypeSelect = document.getElementById('logTypeSelect')
-    dom.logModelInput = document.getElementById('logModelInput')
     dom.logTokenNameInput = document.getElementById('logTokenNameInput')
+    dom.logModelInput = document.getElementById('logModelInput')
+    dom.logModelList = document.getElementById('logModelList')
     dom.logRequestIdInput = document.getElementById('logRequestIdInput')
     dom.logStartInput = document.getElementById('logStartInput')
     dom.logEndInput = document.getElementById('logEndInput')
@@ -229,6 +236,7 @@
     })
     dom.logFilterForm.addEventListener('submit', handleLogFilter)
     dom.logFilterResetBtn.addEventListener('click', handleLogFilterReset)
+    dom.logTokenNameInput.addEventListener('change', handleLogTokenChange)
     dom.logTableWrap.addEventListener('scroll', handleLogTableScroll)
     dom.logLoadState.addEventListener('click', handleLogLoadStateClick)
 
@@ -346,7 +354,7 @@
     try {
       await fetchSelf(true)
       showLoggedInState()
-      await Promise.allSettled([loadTokens(), loadLogs()])
+      await Promise.allSettled([loadTokens()])
     } catch {
       showLoggedOutState()
     }
@@ -370,8 +378,36 @@
     state.model.selectedApiKey = ''
     state.model.apiKeys = []
 
+    state.log.requestVersion += 1
+    state.log.loaded = false
+    state.log.page = 1
+    state.log.total = 0
+    state.log.items = []
+    state.log.hasMore = true
+    state.log.isLoading = false
+    state.log.lastError = ''
+    state.log.tokenOptions = []
+    state.log.tokenKeyByName = {}
+    state.log.modelSuggestions = []
+    state.log.stat.quota = 0
+    state.log.stat.rpm = 0
+    state.log.stat.tpm = 0
+
+    dom.logTypeSelect.value = '0'
+    dom.logTokenNameInput.value = ''
+    dom.logModelInput.value = ''
+    dom.logRequestIdInput.value = ''
+    dom.logStartInput.value = ''
+    dom.logEndInput.value = ''
+    dom.logGroupInput.value = ''
+
     renderModelApiKeyOptions()
     renderModelTable()
+    renderLogTokenOptions()
+    renderLogModelSuggestions()
+    renderLogStat()
+    renderLogTable()
+    updateLogLoadState()
 
     updateUserInfo()
   }
@@ -427,7 +463,7 @@
       await fetchSelf(false)
       dom.passwordInput.value = ''
       showLoggedInState()
-      await Promise.allSettled([loadTokens(), loadLogs()])
+      await Promise.allSettled([loadTokens()])
       showAlert('登录成功', 'success')
     } catch (err) {
       showAlert('登录失败：' + (err.message || '未知错误'), 'error', 0)
@@ -498,6 +534,13 @@
 
     if (panelId === 'modelPanel' && state.user && !state.model.loaded) {
       void refreshModels(true).catch(() => {})
+    }
+
+    if (panelId === 'logPanel' && state.user && !state.log.loaded) {
+      state.log.loaded = true
+      void initializeLogPanel(true).catch(() => {
+        state.log.loaded = false
+      })
     }
   }
 
@@ -1113,14 +1156,127 @@
 
   function handleLogFilterReset() {
     dom.logTypeSelect.value = '0'
-    dom.logModelInput.value = ''
     dom.logTokenNameInput.value = ''
+    dom.logModelInput.value = ''
     dom.logRequestIdInput.value = ''
     dom.logStartInput.value = ''
     dom.logEndInput.value = ''
     dom.logGroupInput.value = ''
 
+    void refreshLogModelSuggestions(false).catch(() => {})
     void loadLogs(true, { resetScroll: true })
+  }
+
+  function handleLogTokenChange() {
+    void refreshLogModelSuggestions(false).catch(() => {})
+  }
+
+  async function initializeLogPanel(showError) {
+    try {
+      await ensureLogTokenOptions(showError)
+    } catch {
+      // ignore token option errors, 日志仍可按当前条件查询
+    }
+
+    await refreshLogModelSuggestions(false)
+    await loadLogs(showError, { resetScroll: true })
+  }
+
+  async function ensureLogTokenOptions(showError) {
+    if (state.log.tokenOptions.length) {
+      renderLogTokenOptions()
+      return
+    }
+
+    try {
+      const tokens = await fetchModelApiKeyTokens()
+      const byName = new Map()
+
+      tokens.forEach((token) => {
+        const tokenName = String(token?.name || '').trim()
+        if (!tokenName || byName.has(tokenName)) {
+          return
+        }
+        byName.set(tokenName, normalizeTokenKey(token?.key))
+      })
+
+      state.log.tokenOptions = Array.from(byName.entries())
+        .map(([name, key]) => ({ name, key }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+
+      state.log.tokenKeyByName = Object.fromEntries(
+        state.log.tokenOptions.map((item) => [item.name, item.key])
+      )
+
+      renderLogTokenOptions()
+    } catch (err) {
+      if (showError) {
+        showAlert('加载日志 Token 下拉失败：' + (err.message || '未知错误'), 'error', 0)
+      }
+      throw err
+    }
+  }
+
+  function renderLogTokenOptions() {
+    if (!dom.logTokenNameInput) {
+      return
+    }
+
+    const currentValue = String(dom.logTokenNameInput.value || '').trim()
+    const defaultOption = '<option value="">全部 Token</option>'
+    const optionHTML = state.log.tokenOptions
+      .map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`)
+      .join('')
+
+    dom.logTokenNameInput.innerHTML = defaultOption + optionHTML
+
+    const exists = state.log.tokenOptions.some((item) => item.name === currentValue)
+    dom.logTokenNameInput.value = exists ? currentValue : ''
+  }
+
+  async function refreshLogModelSuggestions(showError) {
+    try {
+      const selectedTokenName = String(dom.logTokenNameInput?.value || '').trim()
+      const selectedTokenKey = state.log.tokenKeyByName[selectedTokenName] || ''
+      const headers = {}
+
+      if (selectedTokenKey) {
+        headers.Authorization = `Bearer ${selectedTokenKey}`
+      }
+
+      const { items } = await requestModelList(headers)
+      const modelIds = []
+      const seen = new Set()
+
+      items.forEach((item) => {
+        const modelId = String(item?.id || '').trim()
+        if (!modelId || seen.has(modelId)) {
+          return
+        }
+        seen.add(modelId)
+        modelIds.push(modelId)
+      })
+
+      state.log.modelSuggestions = modelIds
+      renderLogModelSuggestions()
+    } catch (err) {
+      state.log.modelSuggestions = []
+      renderLogModelSuggestions()
+
+      if (showError) {
+        showAlert('加载日志模型下拉失败：' + (err.message || '未知错误'), 'warning', 0)
+      }
+    }
+  }
+
+  function renderLogModelSuggestions() {
+    if (!dom.logModelList) {
+      return
+    }
+
+    dom.logModelList.innerHTML = state.log.modelSuggestions
+      .map((modelId) => `<option value="${escapeHtml(modelId)}"></option>`)
+      .join('')
   }
 
   function handleLogTableScroll() {
@@ -1265,7 +1421,10 @@
       renderLogTable({ append: currentPage > 1, items: pageItems })
 
       shouldAutoLoadNextPage =
-        state.log.hasMore && dom.logTableWrap.scrollHeight <= dom.logTableWrap.clientHeight + 8
+        state.log.hasMore &&
+        isLogPanelVisible() &&
+        dom.logTableWrap.clientHeight > 0 &&
+        dom.logTableWrap.scrollHeight <= dom.logTableWrap.clientHeight + 8
     } catch (err) {
       if (requestVersion !== state.log.requestVersion) {
         return
@@ -1439,6 +1598,14 @@
       return null
     }
     return num
+  }
+
+  function isLogPanelVisible() {
+    if (!dom.logPanel) {
+      return false
+    }
+
+    return dom.logPanel.classList.contains('show') && !dom.logPanel.classList.contains('hidden')
   }
 
   function updateLogLoadState() {

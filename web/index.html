@@ -238,8 +238,11 @@
                 <option value="4">系统</option>
                 <option value="6">退款</option>
               </select>
-              <input id="logModelInput" class="input-sm" type="text" placeholder="模型 (gpt-4)" />
-              <input id="logTokenNameInput" class="input-sm" type="text" placeholder="Token 名称" />
+              <select id="logTokenNameInput" class="input-sm">
+                <option value="">全部 Token</option>
+              </select>
+              <input id="logModelInput" class="input-sm" type="text" list="logModelList" placeholder="模型（可下拉或手动输入）" />
+              <datalist id="logModelList"></datalist>
               <input id="logRequestIdInput" class="input-sm" type="text" placeholder="Req ID" />
               <input id="logStartInput" class="input-sm" type="datetime-local" />
               <input id="logEndInput" class="input-sm" type="datetime-local" />
