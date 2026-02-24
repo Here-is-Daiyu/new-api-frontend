@@ -732,10 +732,33 @@ button {
   background: var(--color-bg-card);
 }
 
+select.input-sm {
+  padding-right: 2rem;
+}
+
 .select-sm {
   padding: 0.4rem 2rem 0.4rem 0.6rem;
   font-size: 0.85rem;
   background: var(--color-bg-card);
+}
+
+select.select-sm,
+select.input-sm {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#modelFilterForm #modelApiKeySelect {
+  min-width: 320px;
+  max-width: 100%;
+  flex: 1 1 520px;
+  font-family: var(--font-mono);
+}
+
+#logFilterForm #logTypeSelect,
+#logFilterForm #logTokenNameInput {
+  min-width: 0;
 }
 
 .filter-grid {
