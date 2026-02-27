@@ -49,6 +49,13 @@
     { value: '50', label: '50条/页' }
   ]
 
+  const TOKEN_STATUS_OPTIONS = [
+    { value: '1', label: '启用' },
+    { value: '2', label: '禁用' },
+    { value: '3', label: '过期' },
+    { value: '4', label: '耗尽' }
+  ]
+
   const customSelectInstances = new Map()
   let customSelectGlobalEventsBound = false
 
@@ -134,6 +141,7 @@
     initTheme()
     syncTokenQuotaInputState()
     renderTokenPageSizeOptions()
+    renderTokenStatusOptions()
     renderModelApiKeyOptions()
     renderModelTable()
     renderLogTypeOptions()
@@ -227,6 +235,7 @@
     dom.saveTokenBtn = document.getElementById('saveTokenBtn')
 
     initCustomSelect(dom.tokenPageSizeSelect)
+    initCustomSelect(dom.tokenStatusSelect)
     initCustomSelect(dom.modelApiKeySelect)
     initCustomSelect(dom.logTypeSelect)
     initCustomSelect(dom.logTokenNameInput)
@@ -259,6 +268,7 @@
     dom.closeTokenModalBtn.addEventListener('click', closeTokenModal)
     dom.tokenForm.addEventListener('submit', handleSaveToken)
     dom.tokenUnlimitedInput.addEventListener('change', syncTokenQuotaInputState)
+    bindDatetimeAutoComplete(dom.tokenExpireInput)
 
     dom.refreshModelBtn.addEventListener('click', () => {
       void refreshModels(true).catch(() => {})
@@ -266,6 +276,9 @@
     dom.modelFilterForm.addEventListener('submit', handleModelFilter)
     setCustomSelectOnChange(dom.modelApiKeySelect, () => {
       handleModelApiKeyChange()
+    })
+    setCustomSelectOnChange(dom.tokenStatusSelect, () => {
+      syncSelectTitle(dom.tokenStatusSelect)
     })
     setCustomSelectOnChange(dom.tokenPageSizeSelect, () => {
       syncSelectTitle(dom.tokenPageSizeSelect)
@@ -290,6 +303,8 @@
     })
     dom.logTableWrap.addEventListener('scroll', handleLogTableScroll)
     dom.logLoadState.addEventListener('click', handleLogLoadStateClick)
+    bindDatetimeAutoComplete(dom.logStartInput)
+    bindDatetimeAutoComplete(dom.logEndInput)
 
     dom.tokenModal.addEventListener('click', (event) => {
       if (event.target === dom.tokenModal) {
@@ -803,7 +818,7 @@
     dom.tokenModalTitle.textContent = '新建 Token'
     dom.tokenForm.reset()
     dom.tokenIdInput.value = ''
-    dom.tokenStatusSelect.value = '1'
+    setCustomSelectValue(dom.tokenStatusSelect, '1', { silent: true })
     dom.tokenQuotaInput.value = '0'
     dom.tokenExpireInput.value = ''
     dom.tokenGroupInput.value = ''
@@ -826,9 +841,11 @@
     dom.tokenModalTitle.textContent = `编辑 Token #${tokenId}`
     dom.tokenIdInput.value = String(tokenId)
     dom.tokenNameInput.value = token.name || ''
-    dom.tokenStatusSelect.value = String(toNonNegativeInt(token.status, 1) || 1)
+    setCustomSelectValue(dom.tokenStatusSelect, String(toNonNegativeInt(token.status, 1) || 1), {
+      silent: true
+    })
     dom.tokenQuotaInput.value = String(toNonNegativeInt(token.remain_quota, 0))
-    dom.tokenExpireInput.value = unixToDatetimeLocal(token.expired_time)
+    dom.tokenExpireInput.value = unixToDatetimeText(token.expired_time)
     dom.tokenUnlimitedInput.checked = Boolean(token.unlimited_quota)
     dom.tokenModelLimitEnabledInput.checked = Boolean(token.model_limits_enabled)
     dom.tokenModelLimitsInput.value = token.model_limits || ''
@@ -883,8 +900,7 @@
   function collectTokenPayloadFromForm() {
     const id = toNonNegativeInt(dom.tokenIdInput.value, 0)
     const name = dom.tokenNameInput.value.trim()
-    // 状态从前端 select 获取，默认为 1（启用）
-    const status = toPositiveInt(dom.tokenStatusSelect.value, 1)
+    const status = toPositiveInt(getCustomSelectValue(dom.tokenStatusSelect), 1)
     const unlimitedQuota = dom.tokenUnlimitedInput.checked
     const quotaInput = dom.tokenQuotaInput.value.trim()
     const remainQuota = quotaInput === '' ? 0 : Number.parseInt(quotaInput, 10)
@@ -1352,6 +1368,25 @@
     const fallback = String(state.token.pageSize || 10)
     setCustomSelectValue(dom.tokenPageSizeSelect, exists ? currentValue : fallback, { silent: true })
     syncSelectTitle(dom.tokenPageSizeSelect)
+  }
+
+  function renderTokenStatusOptions() {
+    if (!dom.tokenStatusSelect) {
+      return
+    }
+
+    const currentValue = getCustomSelectValue(dom.tokenStatusSelect).trim() || '1'
+    const options = TOKEN_STATUS_OPTIONS.map((item) => ({
+      value: item.value,
+      label: item.label,
+      title: item.label
+    }))
+
+    setCustomSelectOptions(dom.tokenStatusSelect, options)
+
+    const exists = options.some((item) => item.value === currentValue)
+    setCustomSelectValue(dom.tokenStatusSelect, exists ? currentValue : '1', { silent: true })
+    syncSelectTitle(dom.tokenStatusSelect)
   }
 
   function renderLogTypeOptions() {
@@ -2507,6 +2542,91 @@
     })
   }
 
+  function bindDatetimeAutoComplete(input) {
+    if (!input) {
+      return
+    }
+
+    input.addEventListener('input', () => {
+      const nextValue = autoCompleteDatetimeInputText(input.value)
+      if (nextValue !== input.value) {
+        input.value = nextValue
+      }
+    })
+
+    input.addEventListener('blur', () => {
+      input.value = normalizeDatetimeInputText(input.value)
+    })
+  }
+
+  function autoCompleteDatetimeInputText(value) {
+    const raw = String(value || '').trim()
+    if (!raw) {
+      return ''
+    }
+
+    const compact = raw.replaceAll('/', '-').replaceAll('T', ' ').replace(/\s+/g, ' ')
+    if (!/^\d+$/.test(compact)) {
+      return compact
+    }
+
+    if (isLikelyUnixTimestampText(compact)) {
+      return compact
+    }
+
+    return formatCompactDatetimeForInput(compact)
+  }
+
+  function normalizeDatetimeInputText(value) {
+    const autoCompleted = autoCompleteDatetimeInputText(value)
+    if (!autoCompleted) {
+      return ''
+    }
+
+    const unix = datetimeLocalToUnix(autoCompleted)
+    if (!unix) {
+      return autoCompleted
+    }
+
+    return formatTimestamp(unix)
+  }
+
+  function isLikelyUnixTimestampText(text) {
+    if (!/^\d{10}$/.test(text) && !/^\d{13}$/.test(text)) {
+      return false
+    }
+
+    const yearPrefix = Number.parseInt(text.slice(0, 4), 10)
+    return !Number.isFinite(yearPrefix) || yearPrefix < 1900 || yearPrefix > 2100
+  }
+
+  function formatCompactDatetimeForInput(digitsText) {
+    const digits = String(digitsText || '').replace(/\D/g, '').slice(0, 14)
+    if (!digits) {
+      return ''
+    }
+
+    let formatted = digits.slice(0, Math.min(4, digits.length))
+
+    if (digits.length > 4) {
+      formatted += `-${digits.slice(4, Math.min(6, digits.length))}`
+    }
+    if (digits.length > 6) {
+      formatted += `-${digits.slice(6, Math.min(8, digits.length))}`
+    }
+    if (digits.length > 8) {
+      formatted += ` ${digits.slice(8, Math.min(10, digits.length))}`
+    }
+    if (digits.length > 10) {
+      formatted += `:${digits.slice(10, Math.min(12, digits.length))}`
+    }
+    if (digits.length > 12) {
+      formatted += `:${digits.slice(12, Math.min(14, digits.length))}`
+    }
+
+    return formatted
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replaceAll('&', '&amp;')
@@ -2540,7 +2660,7 @@
     return formatTimestamp(ts)
   }
 
-  function unixToDatetimeLocal(seconds) {
+  function unixToDatetimeText(seconds) {
     const ts = Number(seconds)
     if (!Number.isFinite(ts) || ts <= 0 || ts === -1) {
       return ''
@@ -2551,13 +2671,13 @@
       return ''
     }
 
-    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}T${pad2(
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(
       date.getHours()
-    )}:${pad2(date.getMinutes())}`
+    )}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
   }
 
   function datetimeLocalToUnix(value) {
-    const text = String(value || '').trim()
+    const text = autoCompleteDatetimeInputText(value)
     if (!text) {
       return 0
     }
@@ -2570,7 +2690,7 @@
       return text.length === 13 ? Math.floor(num / 1000) : Math.floor(num)
     }
 
-    const normalized = text.replaceAll('/', '-').replace(/\s+/, ' ')
+    const normalized = text.replaceAll('/', '-').replace(/\s+/g, ' ')
     const directMs = Date.parse(normalized)
     if (Number.isFinite(directMs) && !Number.isNaN(directMs) && directMs > 0) {
       return Math.floor(directMs / 1000)

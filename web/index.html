@@ -286,20 +286,20 @@
               <input id="tokenNameInput" class="input-std" type="text" maxlength="50" required placeholder="譬如：测试 Key" />
             </div>
 
-            <div class="form-group">
-               <label>过期时间</label>
-               <input id="tokenExpireInput" class="input-std" type="datetime-local" />
-            </div>
-
              <div class="form-group">
-              <label>状态</label>
-              <select id="tokenStatusSelect" class="input-std">
-                <option value="1">启用</option>
-                <option value="2">禁用</option>
-                <option value="3">过期</option>
-                <option value="4">耗尽</option>
-              </select>
-            </div>
+                <label>过期时间</label>
+                <input
+                  id="tokenExpireInput"
+                  class="input-std"
+                  type="text"
+                  placeholder="例如 2026-02-24 13:00:00"
+                />
+             </div>
+
+              <div class="form-group">
+               <label>状态</label>
+               <div id="tokenStatusSelect" class="custom-select custom-select-sm" aria-label="Token 状态下拉"></div>
+             </div>
 
             <div class="form-group span-2 quota-group">
               <label>额度</label>
