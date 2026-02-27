@@ -1785,7 +1785,7 @@
 
     if (!append) {
       if (!state.log.items.length) {
-        dom.logTableBody.innerHTML = '<tr><td colspan="9" class="text-center">暂无数据</td></tr>'
+        dom.logTableBody.innerHTML = '<tr><td colspan="10" class="text-center">暂无数据</td></tr>'
         return
       }
 
@@ -1797,7 +1797,7 @@
       return
     }
 
-    const placeholderRow = dom.logTableBody.querySelector('td[colspan="9"]')
+    const placeholderRow = dom.logTableBody.querySelector('td[colspan="10"]')
     if (placeholderRow) {
       dom.logTableBody.innerHTML = ''
     }
@@ -1816,8 +1816,13 @@
     const tokenName = escapeHtml(String(item.token_name || '-'))
     const promptTokens = toNonNegativeInt(item.prompt_tokens, 0)
     const completionTokens = toNonNegativeInt(item.completion_tokens, 0)
-    const useTime = toNonNegativeInt(item.use_time, 0)
-    const firstTokenTimeText = formatFirstTokenTime(item)
+    const useTimeSecondsRaw = toFiniteNumber(item.use_time)
+    const useTimeSeconds = useTimeSecondsRaw !== null && useTimeSecondsRaw >= 0 ? useTimeSecondsRaw : 0
+    const firstTokenMs = extractFirstTokenMs(item)
+    const firstTokenTimeText = formatFirstTokenTimeFromMs(firstTokenMs)
+    const adjustedUseTimeSeconds = calcAdjustedUseTimeSeconds(useTimeSeconds, firstTokenMs)
+    const adjustedUseTimeText = formatDurationSeconds(adjustedUseTimeSeconds)
+    const outputRateText = formatOutputRate(completionTokens, adjustedUseTimeSeconds)
     const content = String(item.content || '')
     const contentFull = escapeHtml(content)
 
@@ -1842,15 +1847,15 @@
         <td><code class="mono">${tokenName}</code></td>
         <td>${promptTokens}</td>
         <td>${completionTokens}</td>
-        <td class="text-sub">${useTime}s</td>
+        <td class="text-sub">${adjustedUseTimeText}</td>
         <td class="text-sub">${escapeHtml(firstTokenTimeText)}</td>
+        <td class="text-sub">${escapeHtml(outputRateText)}</td>
         <td>${detailHTML}</td>
       </tr>
     `
   }
 
-  function formatFirstTokenTime(logItem) {
-    const ms = extractFirstTokenMs(logItem)
+  function formatFirstTokenTimeFromMs(ms) {
     if (ms === null) {
       return '-'
     }
@@ -1860,6 +1865,38 @@
     }
 
     return `${ms}ms`
+  }
+
+  function calcAdjustedUseTimeSeconds(useTimeSeconds, firstTokenMs) {
+    const safeUseTime = Number.isFinite(useTimeSeconds) && useTimeSeconds >= 0 ? useTimeSeconds : 0
+
+    if (!Number.isFinite(firstTokenMs) || firstTokenMs < 0) {
+      return safeUseTime
+    }
+
+    const adjusted = safeUseTime - firstTokenMs / 1000
+    return adjusted > 0 ? adjusted : 0
+  }
+
+  function formatDurationSeconds(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      return '-'
+    }
+
+    return `${seconds.toFixed(2)}s`
+  }
+
+  function formatOutputRate(completionTokens, useTimeSeconds) {
+    const tokens = Number(completionTokens)
+    if (!Number.isFinite(tokens) || tokens < 0) {
+      return '-'
+    }
+
+    if (!Number.isFinite(useTimeSeconds) || useTimeSeconds <= 0) {
+      return '-'
+    }
+
+    return `${(tokens / useTimeSeconds).toFixed(2)} token/s`
   }
 
   function extractFirstTokenMs(logItem) {
