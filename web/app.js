@@ -54,6 +54,7 @@
 
   const LOG_PREFETCH_REMAINING_ROWS = 20
   const LOG_PAGE_SIZE = 50
+  const QUOTA_DISPLAY_DIVISOR = 500000
 
   const ROLE_TEXT = {
     0: '访客',
@@ -481,7 +482,7 @@
 
     const roleName = ROLE_TEXT[state.user.role] || `角色${state.user.role}`
     const group = state.user.group || '-'
-    const quota = typeof state.user.quota === 'number' ? state.user.quota : '-'
+    const quota = formatQuotaDisplayValue(state.user.quota)
     dom.userInfoText.innerHTML = `
       <div class="user-name">${escapeHtml(state.user.username)}</div>
       <div class="user-badges">
@@ -1774,9 +1775,18 @@
   }
 
   function renderLogStat() {
-    dom.statQuota.textContent = String(state.log.stat.quota)
+    dom.statQuota.textContent = formatQuotaDisplayValue(state.log.stat.quota)
     dom.statRpm.textContent = String(state.log.stat.rpm)
     dom.statTpm.textContent = String(state.log.stat.tpm)
+  }
+
+  function formatQuotaDisplayValue(value) {
+    const quota = toFiniteNumber(value)
+    if (quota === null || quota < 0) {
+      return '-'
+    }
+
+    return (quota / QUOTA_DISPLAY_DIVISOR).toFixed(2)
   }
 
   function renderLogTable(options = {}) {
