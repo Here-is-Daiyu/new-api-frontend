@@ -100,6 +100,7 @@
       items: [],
       hasMore: true,
       isLoading: false,
+      isRefreshing: false,
       requestVersion: 0,
       lastError: '',
       filters: {
@@ -257,7 +258,7 @@
 
     dom.createTokenBtn.addEventListener('click', openCreateTokenModal)
     dom.refreshTokenBtn.addEventListener('click', () => {
-      void loadTokens(true).catch(() => {})
+      void runWithButtonLoading(dom.refreshTokenBtn, () => loadTokens(true, { silent: true })).catch(() => {})
     })
     dom.tokenFilterForm.addEventListener('submit', handleTokenFilter)
     dom.tokenFilterResetBtn.addEventListener('click', handleTokenFilterReset)
@@ -271,7 +272,7 @@
     bindDatetimeAutoComplete(dom.tokenExpireInput)
 
     dom.refreshModelBtn.addEventListener('click', () => {
-      void refreshModels(true).catch(() => {})
+      void runWithButtonLoading(dom.refreshModelBtn, () => refreshModels(true, { silent: true })).catch(() => {})
     })
     dom.modelFilterForm.addEventListener('submit', handleModelFilter)
     setCustomSelectOnChange(dom.modelApiKeySelect, () => {
@@ -285,10 +286,10 @@
     })
 
     dom.refreshLogBtn.addEventListener('click', () => {
-      void (async () => {
+      void runWithButtonLoading(dom.refreshLogBtn, async () => {
         await Promise.allSettled([refreshLogModelSuggestions(false), refreshLogGroupOptions(false)])
-        await loadLogs(true)
-      })().catch(() => {})
+        await loadLogs(true, { silent: true })
+      }).catch(() => {})
     })
     dom.logFilterForm.addEventListener('submit', handleLogFilter)
     dom.logFilterResetBtn.addEventListener('click', handleLogFilterReset)
@@ -552,14 +553,13 @@
 
   async function handleRefreshSelf() {
     try {
-      setButtonLoading(dom.refreshSelfBtn, true, '刷新中...')
-      await fetchSelf(false)
-      showAlert('会话已刷新', 'success')
+      await runWithButtonLoading(dom.refreshSelfBtn, async () => {
+        await fetchSelf(false)
+        showAlert('会话已刷新', 'success')
+      })
     } catch (err) {
       showAlert('会话刷新失败：' + (err.message || '未知错误'), 'error', 0)
       showLoggedOutState()
-    } finally {
-      setButtonLoading(dom.refreshSelfBtn, false)
     }
   }
 
@@ -653,7 +653,9 @@
     void loadTokens(true).catch(() => {})
   }
 
-  async function loadTokens(showError) {
+  async function loadTokens(showError, options = {}) {
+    const silent = Boolean(options.silent)
+
     try {
       const query = {
         p: state.token.page,
@@ -676,15 +678,22 @@
       const maxPage = calcTotalPage(state.token.total, state.token.pageSize)
       if (state.token.page > maxPage) {
         state.token.page = maxPage
-        return loadTokens(showError)
+        return loadTokens(showError, options)
       }
 
       renderTokenTable()
       updateTokenPager()
     } catch (err) {
-      state.token.items = []
-      renderTokenTable()
-      updateTokenPager()
+      if (!silent) {
+        state.token.total = 0
+        if (dom.tokenTotalBadge) {
+          dom.tokenTotalBadge.textContent = '0'
+        }
+        state.token.items = []
+        renderTokenTable()
+        updateTokenPager()
+      }
+
       if (showError) {
         showAlert('加载 Token 失败：' + (err.message || '未知错误'), 'error', 0)
       }
@@ -1005,9 +1014,9 @@
     void loadModels(true).catch(() => {})
   }
 
-  async function refreshModels(showError) {
+  async function refreshModels(showError, options = {}) {
     await loadModelApiKeyOptions(showError)
-    await loadModels(showError)
+    await loadModels(showError, options)
     state.model.loaded = true
   }
 
@@ -1122,13 +1131,16 @@
     syncSelectTitle(dom.modelApiKeySelect)
   }
 
-  async function loadModels(showError) {
+  async function loadModels(showError, options = {}) {
     if (state.model.isLoading) {
       return
     }
 
+    const silent = Boolean(options.silent) && state.model.items.length > 0
     state.model.isLoading = true
-    renderModelTable({ loading: true })
+    if (!silent) {
+      renderModelTable({ loading: true })
+    }
 
     try {
       const headers = {}
@@ -1143,10 +1155,12 @@
       dom.modelTotalBadge.textContent = String(state.model.total)
       renderModelTable()
     } catch (err) {
-      state.model.items = []
-      state.model.total = 0
-      dom.modelTotalBadge.textContent = '0'
-      renderModelTable()
+      if (!silent) {
+        state.model.items = []
+        state.model.total = 0
+        dom.modelTotalBadge.textContent = '0'
+        renderModelTable()
+      }
 
       if (showError) {
         showAlert('加载模型失败：' + (err.message || '未知错误'), 'error', 0)
@@ -1622,7 +1636,7 @@
   }
 
   function handleLogTableScroll() {
-    if (!state.user || state.log.isLoading || !state.log.hasMore) {
+    if (!state.user || state.log.isLoading || state.log.isRefreshing || !state.log.hasMore) {
       return
     }
 
@@ -1640,7 +1654,7 @@
   }
 
   function handleLogLoadStateClick() {
-    if (state.log.isLoading || !state.log.hasMore) {
+    if (state.log.isLoading || state.log.isRefreshing || !state.log.hasMore) {
       return
     }
     void loadMoreLogs(true)
@@ -1696,23 +1710,84 @@
   async function loadLogs(showError, options = {}) {
     collectLogFiltersFromForm()
 
-    if (options.resetScroll) {
+    const silent = Boolean(options.silent) && state.log.items.length > 0
+    const requestVersion = state.log.requestVersion + 1
+
+    if (options.resetScroll && !silent) {
       resetLogScrollPosition()
     }
 
+    state.log.requestVersion = requestVersion
     state.log.page = 1
-    state.log.total = 0
-    state.log.items = []
     state.log.hasMore = true
     state.log.isLoading = false
+    state.log.isRefreshing = silent
     state.log.lastError = ''
-    state.log.requestVersion += 1
-
-    renderLogTable()
     updateLogLoadState()
 
-    await loadLogStat()
-    await loadMoreLogs(showError, state.log.requestVersion)
+    if (!silent) {
+      state.log.total = 0
+      state.log.items = []
+      renderLogTable()
+
+      await Promise.all([loadLogStat(), loadMoreLogs(showError, requestVersion)])
+      return
+    }
+
+    let shouldAutoLoadNextPage = false
+
+    try {
+      const [pageData] = await Promise.all([requestLogPage(1), loadLogStat({ preserveOnError: true })])
+
+      if (requestVersion !== state.log.requestVersion) {
+        return
+      }
+
+      const total = toNonNegativeInt(pageData?.total, 0)
+      const pageItems = Array.isArray(pageData?.items) ? pageData.items : []
+
+      state.log.total = total
+      state.log.items = pageItems
+      state.log.hasMore = pageItems.length > 0 && state.log.items.length < state.log.total
+      state.log.page = state.log.hasMore ? 2 : 1
+
+      renderLogTable()
+
+      shouldAutoLoadNextPage =
+        state.log.hasMore &&
+        isLogPanelVisible() &&
+        dom.logTableWrap.clientHeight > 0 &&
+        dom.logTableWrap.scrollHeight <= dom.logTableWrap.clientHeight + 8
+    } catch (err) {
+      if (requestVersion !== state.log.requestVersion) {
+        return
+      }
+
+      const errorMessage = err.message || '未知错误'
+      if (showError) {
+        showAlert('加载日志失败：' + errorMessage, 'error', 0)
+      }
+      throw err
+    } finally {
+      if (requestVersion !== state.log.requestVersion) {
+        return
+      }
+
+      state.log.isRefreshing = false
+      updateLogLoadState()
+
+      if (shouldAutoLoadNextPage) {
+        window.setTimeout(() => {
+          void loadMoreLogs(false, requestVersion)
+        }, 0)
+      }
+    }
+  }
+
+  async function requestLogPage(page) {
+    const query = buildLogQuery(true)
+    query.p = page
+    return apiRequest('/api/log/self', { query })
   }
 
   async function loadMoreLogs(showError, requestVersion = state.log.requestVersion) {
@@ -1720,7 +1795,7 @@
       return
     }
 
-    if (state.log.isLoading || !state.log.hasMore) {
+    if (state.log.isLoading || state.log.isRefreshing || !state.log.hasMore) {
       return
     }
 
@@ -1732,9 +1807,7 @@
     const currentPage = state.log.page
 
     try {
-      const query = buildLogQuery(true)
-      query.p = currentPage
-      const pageData = await apiRequest('/api/log/self', { query })
+      const pageData = await requestLogPage(currentPage)
 
       if (requestVersion !== state.log.requestVersion) {
         return
@@ -1792,7 +1865,9 @@
     }
   }
 
-  async function loadLogStat() {
+  async function loadLogStat(options = {}) {
+    const preserveOnError = Boolean(options.preserveOnError)
+
     try {
       const query = buildLogQuery(false)
       const data = await apiRequest('/api/log/self/stat', { query })
@@ -1800,9 +1875,11 @@
       state.log.stat.rpm = toNonNegativeInt(data?.rpm, 0)
       state.log.stat.tpm = toNonNegativeInt(data?.tpm, 0)
     } catch (err) {
-      state.log.stat.quota = 0
-      state.log.stat.rpm = 0
-      state.log.stat.tpm = 0
+      if (!preserveOnError) {
+        state.log.stat.quota = 0
+        state.log.stat.rpm = 0
+        state.log.stat.tpm = 0
+      }
       console.warn('日志统计加载失败', err)
     }
 
@@ -1997,6 +2074,12 @@
   }
 
   function updateLogLoadState() {
+    if (state.log.isRefreshing) {
+      dom.logLoadState.classList.remove('error')
+      dom.logLoadState.textContent = '正在刷新日志...'
+      return
+    }
+
     if (state.log.isLoading) {
       dom.logLoadState.classList.remove('error')
       dom.logLoadState.textContent = state.log.items.length ? '正在加载更多日志...' : '日志加载中...'
@@ -2229,23 +2312,63 @@
     }
   }
 
-  function setButtonLoading(button, loading, loadingText) {
+  function runWithButtonLoading(button, task, loadingOptions) {
+    if (!button || button.disabled) {
+      return Promise.resolve()
+    }
+
+    setButtonLoading(button, true, loadingOptions)
+    return Promise.resolve()
+      .then(() => task())
+      .finally(() => {
+        setButtonLoading(button, false, loadingOptions)
+      })
+  }
+
+  function setButtonLoading(button, loading, loadingOptions) {
     if (!button) {
       return
     }
 
+    const options =
+      typeof loadingOptions === 'string'
+        ? { text: loadingOptions }
+        : loadingOptions && typeof loadingOptions === 'object'
+          ? loadingOptions
+          : {}
+    const loadingText = options.text || ''
+    const loadingWrap = button.closest('.button-loading-wrap')
+    const loadingSpinner = loadingWrap?.querySelector('.button-loading-spinner') || null
+    const useInlineSpinner = Boolean(loadingWrap && loadingSpinner)
+
     if (loading) {
-      if (button.dataset.originalHtml === undefined) {
+      if (button.dataset.originalDisabled === undefined) {
+        button.dataset.originalDisabled = button.disabled ? 'true' : 'false'
+      }
+      if (!useInlineSpinner && button.dataset.originalHtml === undefined) {
         button.dataset.originalHtml = button.innerHTML
       }
       button.disabled = true
+      button.setAttribute('aria-busy', 'true')
+      if (useInlineSpinner) {
+        loadingWrap.classList.add('is-loading')
+        return
+      }
       if (loadingText) {
         button.textContent = loadingText
       }
       return
     }
 
-    button.disabled = false
+    button.disabled = button.dataset.originalDisabled === 'true'
+    button.removeAttribute('aria-busy')
+    delete button.dataset.originalDisabled
+
+    if (useInlineSpinner) {
+      loadingWrap.classList.remove('is-loading')
+      return
+    }
+
     if (button.dataset.originalHtml !== undefined) {
       button.innerHTML = button.dataset.originalHtml
       delete button.dataset.originalHtml

@@ -404,6 +404,10 @@ button {
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
 }
 
 .btn-secondary:hover:not(:disabled) {
@@ -419,6 +423,10 @@ button {
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
 }
 
 .btn-ghost:hover {
@@ -444,6 +452,12 @@ button {
 .btn-sm {
   padding: 0.4rem 0.8rem;
   font-size: 0.85rem;
+}
+
+.btn-secondary:disabled,
+.btn-ghost:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn-icon-sm {
@@ -472,6 +486,37 @@ button {
 
 .w-full {
   width: 100%;
+}
+
+.button-loading-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.button-loading-spinner {
+  display: none;
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-left: 0.45rem;
+  border: 2px solid var(--color-border-hover);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  flex: 0 0 auto;
+  animation: button-spinner-rotate 0.75s linear infinite;
+}
+
+.button-loading-wrap.is-loading .button-loading-spinner {
+  display: inline-block;
+}
+
+@keyframes button-spinner-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Dashboard */
