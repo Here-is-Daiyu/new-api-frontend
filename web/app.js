@@ -1948,14 +1948,10 @@
     const firstTokenMs = extractFirstTokenMs(item)
     const firstTokenTimeText = formatFirstTokenTimeFromMs(firstTokenMs)
 
-    // 输出速率 = completion_tokens / 实际生成时间
-    // 实际生成时间 = use_time - frt/1000（去掉等待首字的时间）
-    const generationTime = firstTokenMs !== null
-      ? useTimeSeconds - firstTokenMs / 1000
-      : useTimeSeconds
+    // 输出速率 = completion_tokens / use_time（总耗时）
     let outputRateText = '-'
-    if (completionTokens > 0 && Number.isFinite(generationTime) && generationTime >= 2) {
-      outputRateText = `${(completionTokens / generationTime).toFixed(1)} t/s`
+    if (completionTokens > 0 && useTimeSeconds >= 2) {
+      outputRateText = `${(completionTokens / useTimeSeconds).toFixed(1)} t/s`
     }
 
     // 详情
