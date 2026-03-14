@@ -1938,13 +1938,27 @@
     const tokenName = escapeHtml(String(item.token_name || '-'))
     const promptTokens = toNonNegativeInt(item.prompt_tokens, 0)
     const completionTokens = toNonNegativeInt(item.completion_tokens, 0)
+
+    // 总耗时 = use_time（秒），直接显示原始值
     const useTimeSecondsRaw = toFiniteNumber(item.use_time)
     const useTimeSeconds = useTimeSecondsRaw !== null && useTimeSecondsRaw >= 0 ? useTimeSecondsRaw : 0
+    const useTimeText = `${useTimeSeconds}s`
+
+    // 首字时间 = other.frt（毫秒）
     const firstTokenMs = extractFirstTokenMs(item)
     const firstTokenTimeText = formatFirstTokenTimeFromMs(firstTokenMs)
-    const adjustedUseTimeSeconds = calcAdjustedUseTimeSeconds(useTimeSeconds, firstTokenMs)
-    const adjustedUseTimeText = formatDurationSeconds(adjustedUseTimeSeconds)
-    const outputRateText = formatOutputRate(completionTokens, adjustedUseTimeSeconds)
+
+    // 输出速率 = completion_tokens / 实际生成时间
+    // 实际生成时间 = use_time - frt/1000（去掉等待首字的时间）
+    const generationTime = firstTokenMs !== null
+      ? useTimeSeconds - firstTokenMs / 1000
+      : useTimeSeconds
+    let outputRateText = '-'
+    if (completionTokens > 0 && Number.isFinite(generationTime) && generationTime >= 2) {
+      outputRateText = `${(completionTokens / generationTime).toFixed(1)} t/s`
+    }
+
+    // 详情
     const content = String(item.content || '')
     const contentFull = escapeHtml(content)
 
@@ -1969,9 +1983,9 @@
         <td><code class="mono">${tokenName}</code></td>
         <td>${promptTokens}</td>
         <td>${completionTokens}</td>
-        <td class="text-sub">${adjustedUseTimeText}</td>
+        <td class="text-sub">${useTimeText}</td>
         <td class="text-sub">${escapeHtml(firstTokenTimeText)}</td>
-        <td class="text-sub">${escapeHtml(outputRateText)}</td>
+        <td class="text-sub">${outputRateText}</td>
         <td>${detailHTML}</td>
       </tr>
     `
