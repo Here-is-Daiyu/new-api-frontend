@@ -98,7 +98,7 @@ func main() {
 }
 
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, jsonResponse{Success: true, Message: "ok", Data: map[string]string{"status": "ok"}})
+	writeJSON(w, http.StatusOK, jsonResponse{Success: true, Message: "ok", Data: map[string]string{"status": "ok", "version": version}})
 }
 
 func handleConfig(w http.ResponseWriter, _ *http.Request) {
