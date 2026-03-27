@@ -16,17 +16,19 @@
 8. 每次功能实现完成后，及时更新 `README.md`（运行方式、功能说明、已支持能力与注意事项）和 `AGENTS.md`。
 9. 每次完成修改后，先查看 `view_diff` 再提供建议 commit message 写中文 要body（仅提供文案，不执行 git commit/push）。
 
-## 本次要实现的功能范围 / 任务项（2026-03-27 第十轮）
+## 本次要实现的功能范围 / 任务项（2026-03-27 第十一轮）
 
-1. 调整 `web/app.js` 的 Token 列渲染逻辑，默认脱敏显示 Key，并支持点击眼睛按钮切换显示/隐藏。
-2. 保持 Token 复制逻辑继续使用完整 Key，不受前端脱敏显示影响。
-3. 调整 `web/style.css` 的移动端样式，重写 `768px` 断点并新增 `480px` 小屏断点，优化 Token 表格、Tab、统计卡片、筛选区、面板头部、分页与弹窗滚动体验。
+1. 重做手机端 `Token` 页面布局，优先保证 `430px` 左右宽度下不出现横向滚动；手机端改为卡片 / 栈式信息展示，减少次要信息占位。
+2. 重做手机端 `日志审计` 页面布局，将表格改为更适合小屏阅读的紧凑日志卡片展示，避免多列挤压与横向滚动依赖。
+3. 保持桌面端现有交互不受影响，同时继续保留 Token Key 脱敏显示与完整复制逻辑。
+4. 同步更新 `README.md` 与 `AGENTS.md`，明确新的移动端策略与本地编译 / VPS 先测后推流程。
 
-## 本次任务完成情况（2026-03-27 第十轮）
+## 本次任务完成情况（2026-03-27 第十一轮）
 
-- [x] 已完成 Token Key 默认脱敏显示，并支持点击眼睛按钮切换显示/隐藏。
-- [x] 已保持复制功能继续复制完整 Key，不受前端显示状态影响。
-- [x] 已完成 `768px` + `480px` 双断点移动端优化，并同步更新 README / AGENTS 说明。
+- [x] 手机端 Token 页面已改为无横向滚动的紧凑布局。
+- [x] 手机端日志页面已改为优先可读、减少次要列的紧凑布局。
+- [x] 已同步更新 README / AGENTS 说明。
+- [x] 已完成本地编译验证，必要时可先部署 VPS 验证后再决定是否推送远端。
 
 ## 功能范围（本次必须完成）
 
@@ -45,24 +47,37 @@
 
 ## 测试约定
 
-- 本地没装环境，全部测试用 GitHub Action 进行。
+1. 本地已安装 Go，优先执行本地 `go build` / `go test`（如可运行）做基础验证。
+2. 涉及 UI 或部署相关改动时，可先本地编译，再上传或直传到 VPS 覆盖测试。
+3. VPS 验证通过后，再决定是否提交并推送远端仓库。
+4. GitHub Actions 继续作为最终多平台构建与补充验证手段。
 
 ## 推送部署约定（Windows 本地 + VPS）
 
-1. 使用 GitHub Actions 产物进行部署，优先使用 Linux 对应架构压缩包。
-2. 本地通过 SSH 别名 `vps` 连接目标服务器。
-3. **过程性文件统一放在 `/tmp`**（上传、解压、临时日志）。
-4. 最终二进制路径固定为：`/opt/newapi-modern-dashboard/newapi-modern-dashboard`。
-5. systemd 服务名固定为：`newapi-modern-dashboard`。
-6. 部署约定监听端口：`12002`（程序内置默认仍为 `:8099`，部署时按需通过 `-addr` 覆盖）。
-7. 支持使用产物直链在 VPS 远端直接下载并部署（无需本地中转上传）。
+1. 本地已安装 Go 时，优先本地编译 Linux 二进制并直接上传 VPS 测试。
+2. 若本地不便交叉编译或需要正式产物，再使用 GitHub Actions 产物部署。
+3. 本地通过 SSH 直连目标服务器（Git Bash 下 SSH 别名存在中文路径编码问题，必须用绝对路径）。
+4. **过程性文件统一放在 `/tmp`**（上传、解压、临时日志）。
+5. 最终二进制路径固定为：`/opt/newapi-modern-dashboard/newapi-modern-dashboard`。
+6. systemd 服务名固定为：`newapi-modern-dashboard`。
+7. 部署约定监听端口：`12002`（程序内置默认仍为 `:8099`，部署时按需通过 `-addr` 覆盖）。
+8. 建议流程：`本地改动 -> 本地编译 -> VPS 覆盖验证 -> 确认无误后再 commit/push`。
+9. 支持使用产物直链在 VPS 远端直接下载并部署（无需本地中转上传）。
 
-### 标准推送部署命令（覆盖升级）
+### SSH 连接参数
 
-```powershell
-$zip = "newapi-modern-dashboard-linux-amd64.zip"
-scp "$zip" "vps:/tmp/"
-ssh "vps" "set -e
+```bash
+SSH_KEY="C:/Users/YZM-一只猫/.ssh/id_ed25519"
+SSH_PORT=10860
+SSH_HOST=root@204.197.163.238
+```
+
+### 标准推送部署命令（本地 scp 上传后安装）
+
+```bash
+ZIP="newapi-modern-dashboard-linux-amd64.zip"
+scp -i "C:/Users/YZM-一只猫/.ssh/id_ed25519" -P 10860 "$ZIP" root@204.197.163.238:/tmp/
+ssh -i "C:/Users/YZM-一只猫/.ssh/id_ed25519" -p 10860 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@204.197.163.238 "set -e
 rm -rf /tmp/newapi-modern-dashboard
 mkdir -p /tmp/newapi-modern-dashboard
 unzip -o /tmp/newapi-modern-dashboard-linux-amd64.zip -d /tmp/newapi-modern-dashboard >/tmp/newapi-modern-dashboard-unzip.log
@@ -78,8 +93,8 @@ curl -fsS http://127.0.0.1:12002/healthz
 
 ```bash
 ARTIFACT_URL="https://example.com/newapi-modern-dashboard-linux-amd64.zip"
-ssh "vps" "set -e
-curl -fL \"$ARTIFACT_URL\" -o /tmp/newapi-modern-dashboard-linux-amd64.zip
+ssh -i "C:/Users/YZM-一只猫/.ssh/id_ed25519" -p 10860 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@204.197.163.238 "set -e
+curl -fL '$ARTIFACT_URL' -o /tmp/newapi-modern-dashboard-linux-amd64.zip
 rm -rf /tmp/newapi-modern-dashboard
 mkdir -p /tmp/newapi-modern-dashboard
 unzip -o /tmp/newapi-modern-dashboard-linux-amd64.zip -d /tmp/newapi-modern-dashboard >/tmp/newapi-modern-dashboard-unzip.log
@@ -126,7 +141,7 @@ journalctl -u newapi-modern-dashboard -f
 3. 所有请求都带 `credentials: "include"`。
 4. 统一请求函数处理错误与 `success/message/data` 响应结构。
 5. Token Key 默认脱敏显示，支持前端显示/隐藏切换，复制时仍使用完整 Key。
-6. 移动端布局采用 `768px` 与 `480px` 双断点响应式优化，优先保证手机端可读性与可操作性。
+6. 移动端布局采用 `768px` 与 `480px` 双断点响应式优化；其中 Token / 日志列表在手机端优先切换为卡片 / 栈式布局，避免依赖横向滚动。
 
 ## 安全与稳定性
 

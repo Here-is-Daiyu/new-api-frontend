@@ -706,7 +706,7 @@
 
   function renderTokenTable() {
     if (!state.token.items.length) {
-      dom.tokenTableBody.innerHTML = '<tr><td colspan="7" class="text-center">暂无数据</td></tr>'
+      dom.tokenTableBody.innerHTML = '<tr class="table-placeholder-row"><td colspan="7" class="text-center">暂无数据</td></tr>'
       return
     }
 
@@ -718,39 +718,45 @@
         const keyText = escapeHtml(fullKey ? (isKeyVisible ? fullKey : maskTokenKey(fullKey)) : '-')
         const nameText = escapeHtml(String(token.name || '-'))
         const toggleKeyTitle = isKeyVisible ? '隐藏完整 Key' : '显示完整 Key'
+        const statusLabel = TOKEN_STATUS_TEXT[token.status] || '未知'
 
         let statusClass = 'badge'
         if (token.status === 1) statusClass = 'badge badge-success'
         else if (token.status === 2) statusClass = 'badge badge-danger'
         else if (token.status === 3) statusClass = 'badge badge-warning'
 
-        const statusText = `<span class="${statusClass}">${TOKEN_STATUS_TEXT[token.status] || '未知'}</span>`
+        const statusText = `<span class="${statusClass}">${statusLabel}</span>`
 
         const quotaText = token.unlimited_quota
           ? '<span class="badge-count">无限</span>'
-          : `${toNonNegativeInt(token.remain_quota, 0)}`
+          : `<span class="token-quota-value">${toNonNegativeInt(token.remain_quota, 0)}</span>`
 
         const expiredText = formatExpiredTime(token.expired_time)
         const toggleStatusText = token.status === 1 ? '禁用' : '启用'
 
         return `
-          <tr>
-            <td class="token-id-cell"><code class="mono text-sub">#${id}</code></td>
-            <td>${nameText}</td>
-            <td class="token-key-cell">
+          <tr class="token-row" data-token-id="${id}">
+            <td class="token-cell token-cell-id token-id-cell" data-mobile-label="ID"><code class="mono text-sub token-id-pill">#${id}</code></td>
+            <td class="token-cell token-cell-name"><div class="token-primary-text">${nameText}</div></td>
+            <td class="token-cell token-cell-key token-key-cell">
               <span class="token-key-wrap">
                 <code class="mono token-key">${keyText}</code>
                 ${fullKey
-                  ? `<button class="btn-ghost-primary btn-toggle-key" type="button" data-action="toggle-key" data-id="${id}" title="${toggleKeyTitle}" aria-pressed="${isKeyVisible ? 'true' : 'false'}"><span class="sr-only">${toggleKeyTitle}</span><span aria-hidden="true">${isKeyVisible ? '🙈' : '👁'}</span></button>`
+                  ? `<span class="token-key-actions">
+                      <button class="btn-ghost-primary btn-toggle-key" type="button" data-action="toggle-key" data-id="${id}" title="${toggleKeyTitle}" aria-pressed="${isKeyVisible ? 'true' : 'false'}"><span class="sr-only">${toggleKeyTitle}</span><span aria-hidden="true">${isKeyVisible ? '🙈' : '👁'}</span></button>
+                      <button class="btn-ghost-primary mobile-inline-action token-key-copy-btn" type="button" data-action="copy" data-id="${id}" title="复制 Key">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                      </button>
+                    </span>`
                   : ''}
               </span>
             </td>
-            <td>${statusText}</td>
-            <td>${quotaText}</td>
-            <td class="text-sub">${escapeHtml(expiredText)}</td>
-            <td class="token-actions-cell">
+            <td class="token-cell token-cell-status">${statusText}</td>
+            <td class="token-cell token-cell-quota token-secondary-cell" data-mobile-label="额度">${quotaText}</td>
+            <td class="token-cell token-cell-expired token-secondary-cell text-sub" data-mobile-label="过期时间">${escapeHtml(expiredText)}</td>
+            <td class="token-cell token-cell-actions token-actions-cell">
               <div class="inline-actions">
-                <button class="btn-ghost-primary" type="button" data-action="copy" data-id="${id}" title="复制 Key">
+                <button class="btn-ghost-primary desktop-inline-action" type="button" data-action="copy" data-id="${id}" title="复制 Key">
                   <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                 </button>
                 <button class="btn-ghost-primary" type="button" data-action="edit" data-id="${id}" title="编辑">
@@ -1925,7 +1931,7 @@
 
     if (!append) {
       if (!state.log.items.length) {
-        dom.logTableBody.innerHTML = '<tr><td colspan="10" class="text-center">暂无数据</td></tr>'
+        dom.logTableBody.innerHTML = '<tr class="table-placeholder-row"><td colspan="10" class="text-center">暂无数据</td></tr>'
         return
       }
 
@@ -1975,11 +1981,15 @@
     // 详情
     const content = String(item.content || '')
     const contentFull = escapeHtml(content)
+    const isErrorLog = type === 5
+    const detailCellClasses = ['log-cell', 'log-cell-detail']
 
     let detailHTML = '<span class="text-sub">-</span>'
     if (content) {
-      if (type === 5) {
-        detailHTML = `<div title="${contentFull}" class="log-content-error">${escapeHtml(
+      detailCellClasses.push('has-content')
+      if (isErrorLog) {
+        detailCellClasses.push('is-error')
+        detailHTML = `<span class="mobile-inline-label">错误详情</span><div title="${contentFull}" class="log-content-error">${escapeHtml(
           truncateText(content, 100)
         )}</div>`
       } else {
@@ -1990,17 +2000,17 @@
     }
 
     return `
-      <tr>
-        <td><div class="text-sub">${escapeHtml(createdAt)}</div></td>
-        <td><span class="${badgeClass}">${escapeHtml(typeText)}</span></td>
-        <td>${modelName}</td>
-        <td><code class="mono">${tokenName}</code></td>
-        <td>${promptTokens}</td>
-        <td>${completionTokens}</td>
-        <td class="text-sub">${useTimeText}</td>
-        <td class="text-sub">${escapeHtml(firstTokenTimeText)}</td>
-        <td class="text-sub">${outputRateText}</td>
-        <td>${detailHTML}</td>
+      <tr class="log-row${isErrorLog ? ' log-row-error' : ''}">
+        <td class="log-cell log-cell-time"><div class="text-sub log-time-text">${escapeHtml(createdAt)}</div></td>
+        <td class="log-cell log-cell-type"><span class="${badgeClass}">${escapeHtml(typeText)}</span></td>
+        <td class="log-cell log-cell-model"><span class="mobile-inline-label">模型</span><code class="mono log-main-text">${modelName}</code></td>
+        <td class="log-cell log-cell-token"><span class="mobile-inline-label">Token</span><code class="mono log-main-text">${tokenName}</code></td>
+        <td class="log-cell log-cell-prompt"><span class="mobile-inline-label">输入</span><strong class="log-metric-value">${promptTokens}</strong></td>
+        <td class="log-cell log-cell-completion"><span class="mobile-inline-label">输出</span><strong class="log-metric-value">${completionTokens}</strong></td>
+        <td class="log-cell log-cell-duration"><span class="mobile-inline-label">耗时</span><strong class="log-metric-value">${escapeHtml(useTimeText)}</strong></td>
+        <td class="log-cell log-cell-first-token text-sub"><span class="mobile-inline-label">首字</span>${escapeHtml(firstTokenTimeText)}</td>
+        <td class="log-cell log-cell-rate text-sub"><span class="mobile-inline-label">速率</span>${escapeHtml(String(outputRateText))}</td>
+        <td class="${detailCellClasses.join(' ')}">${detailHTML}</td>
       </tr>
     `
   }
