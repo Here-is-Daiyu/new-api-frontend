@@ -35,3 +35,6 @@ $RECYCLE.BIN/
 *.tmp
 *.temp
 nul
+
+# agent config
+AGENTS.md
