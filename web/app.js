@@ -82,7 +82,8 @@
       pageSize: 10,
       total: 0,
       keyword: '',
-      items: []
+      items: [],
+      visibleKeyIds: new Set()
     },
     model: {
       items: [],
@@ -442,6 +443,8 @@
     dom.dashboard.classList.add('hidden')
     closeTokenModal()
 
+    state.token.visibleKeyIds.clear()
+
     state.model.items = []
     state.model.total = 0
     state.model.isLoading = false
@@ -710,10 +713,13 @@
     dom.tokenTableBody.innerHTML = state.token.items
       .map((token) => {
         const id = toNonNegativeInt(token.id, 0)
-        const keyText = escapeHtml(normalizeTokenKey(token.key))
+        const fullKey = normalizeTokenKey(token.key)
+        const isKeyVisible = state.token.visibleKeyIds.has(id)
+        const keyText = escapeHtml(fullKey ? (isKeyVisible ? fullKey : maskTokenKey(fullKey)) : '-')
         const nameText = escapeHtml(String(token.name || '-'))
+        const toggleKeyTitle = isKeyVisible ? '隐藏完整 Key' : '显示完整 Key'
 
-                let statusClass = 'badge'
+        let statusClass = 'badge'
         if (token.status === 1) statusClass = 'badge badge-success'
         else if (token.status === 2) statusClass = 'badge badge-danger'
         else if (token.status === 3) statusClass = 'badge badge-warning'
@@ -725,17 +731,24 @@
           : `${toNonNegativeInt(token.remain_quota, 0)}`
 
         const expiredText = formatExpiredTime(token.expired_time)
-        const toggleText = token.status === 1 ? '禁用' : '启用'
+        const toggleStatusText = token.status === 1 ? '禁用' : '启用'
 
         return `
           <tr>
-            <td><code class="mono text-sub">#${id}</code></td>
+            <td class="token-id-cell"><code class="mono text-sub">#${id}</code></td>
             <td>${nameText}</td>
-            <td><code class="mono token-key">${keyText}</code></td>
+            <td class="token-key-cell">
+              <span class="token-key-wrap">
+                <code class="mono token-key">${keyText}</code>
+                ${fullKey
+                  ? `<button class="btn-ghost-primary btn-toggle-key" type="button" data-action="toggle-key" data-id="${id}" title="${toggleKeyTitle}" aria-pressed="${isKeyVisible ? 'true' : 'false'}"><span class="sr-only">${toggleKeyTitle}</span><span aria-hidden="true">${isKeyVisible ? '🙈' : '👁'}</span></button>`
+                  : ''}
+              </span>
+            </td>
             <td>${statusText}</td>
             <td>${quotaText}</td>
             <td class="text-sub">${escapeHtml(expiredText)}</td>
-            <td>
+            <td class="token-actions-cell">
               <div class="inline-actions">
                 <button class="btn-ghost-primary" type="button" data-action="copy" data-id="${id}" title="复制 Key">
                   <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
@@ -743,7 +756,7 @@
                 <button class="btn-ghost-primary" type="button" data-action="edit" data-id="${id}" title="编辑">
                   <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                 </button>
-                <button class="btn-ghost-primary" type="button" data-action="toggle" data-id="${id}" title="${toggleText}">
+                <button class="btn-ghost-primary" type="button" data-action="toggle" data-id="${id}" title="${toggleStatusText}">
                   ${token.status === 1
                     ? '<svg class="text-danger" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>'
                     : '<svg class="text-success" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>'}
@@ -775,6 +788,11 @@
     const action = button.dataset.action
     const tokenId = toNonNegativeInt(button.dataset.id, 0)
     if (!tokenId) {
+      return
+    }
+
+    if (action === 'toggle-key') {
+      toggleTokenKeyVisibility(tokenId)
       return
     }
 
@@ -2396,6 +2414,26 @@
     }
 
     return `sk-${key}`
+  }
+
+  function maskTokenKey(raw) {
+    const key = normalizeTokenKey(raw)
+    if (!key) {
+      return ''
+    }
+
+    const visibleLength = key.length <= 12 ? 4 : 8
+    return `${key.slice(0, visibleLength)}****`
+  }
+
+  function toggleTokenKeyVisibility(tokenId) {
+    if (state.token.visibleKeyIds.has(tokenId)) {
+      state.token.visibleKeyIds.delete(tokenId)
+    } else {
+      state.token.visibleKeyIds.add(tokenId)
+    }
+
+    renderTokenTable()
   }
 
   function formatModelApiKeyLabel(tokenName, key) {
