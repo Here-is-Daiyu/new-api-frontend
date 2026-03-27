@@ -1050,6 +1050,40 @@ select.input-sm {
   line-height: 1;
 }
 
+.mobile-inline-action,
+.mobile-inline-label {
+  display: none;
+}
+
+.token-primary-text {
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.token-id-pill {
+  display: inline-flex;
+  align-items: center;
+}
+
+.token-key-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+
+.log-main-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.log-metric-value {
+  font-weight: 600;
+  color: var(--color-text-main);
+}
+
 .log-content-short {
   display: inline-block;
   max-width: 360px;
@@ -1508,39 +1542,292 @@ html[data-theme='dark'] .alert-toast.error {
     padding: 0.65rem 0.75rem;
   }
 
-  #tokenPanel .modern-table th:nth-child(1),
-  #tokenPanel .modern-table td:nth-child(1) {
-    width: 50px;
-    min-width: 50px;
+  #tokenPanel .table-responsive,
+  #logPanel .table-responsive {
+    overflow-x: hidden;
+    border: none;
+    border-radius: 0;
+    background: transparent;
   }
 
-  #tokenPanel .modern-table th:nth-child(3),
-  #tokenPanel .modern-table td:nth-child(3) {
-    min-width: 180px;
+  #tokenPanel .modern-table,
+  #tokenPanel .modern-table tbody,
+  #logPanel .modern-table,
+  #logPanel .modern-table tbody {
+    display: block;
+    width: 100%;
   }
 
-  #tokenPanel .token-key {
-    max-width: 160px;
+  #tokenPanel .modern-table thead,
+  #logPanel .modern-table thead {
+    display: none;
+  }
+
+  #tokenPanel .modern-table tbody,
+  #logPanel .modern-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  #tokenPanel .modern-table tbody tr,
+  #logPanel .modern-table tbody tr {
+    display: grid;
+    width: 100%;
+    gap: 0.55rem 0.75rem;
+    padding: 0.85rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-input);
+    box-shadow: var(--shadow-sm);
+  }
+
+  #tokenPanel .modern-table tbody tr:hover,
+  #logPanel .modern-table tbody tr:hover {
+    background: var(--color-bg-input);
+  }
+
+  #tokenPanel .modern-table tbody td,
+  #logPanel .modern-table tbody td {
+    display: block;
+    padding: 0;
+    border-bottom: none;
+    min-width: 0;
+  }
+
+  #tokenPanel .modern-table tbody tr.table-placeholder-row,
+  #logPanel .modern-table tbody tr.table-placeholder-row {
+    display: block;
+    padding: 1rem 0.75rem;
+    text-align: center;
+  }
+
+  #tokenPanel .modern-table tbody tr.table-placeholder-row td,
+  #logPanel .modern-table tbody tr.table-placeholder-row td {
+    width: 100%;
+    text-align: center;
+  }
+
+  #tokenPanel .modern-table tbody tr {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'name status'
+      'id id'
+      'key key'
+      'quota expired'
+      'actions actions';
+  }
+
+  #tokenPanel .token-cell-name {
+    grid-area: name;
+  }
+
+  #tokenPanel .token-cell-status {
+    grid-area: status;
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-start;
+  }
+
+  #tokenPanel .token-cell-id {
+    grid-area: id;
+    font-size: 0.8rem;
+  }
+
+  #tokenPanel .token-cell-key {
+    grid-area: key;
+  }
+
+  #tokenPanel .token-cell-quota {
+    grid-area: quota;
+  }
+
+  #tokenPanel .token-cell-expired {
+    grid-area: expired;
+  }
+
+  #tokenPanel .token-cell-actions {
+    grid-area: actions;
+  }
+
+  #tokenPanel .token-primary-text {
+    font-size: 0.98rem;
+    overflow-wrap: anywhere;
   }
 
   #tokenPanel .token-key-wrap {
-    gap: 0.25rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding: 0.7rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-card);
   }
 
-  #tokenPanel .token-actions-cell {
-    min-width: 150px;
+  #tokenPanel .token-key {
+    max-width: 100%;
   }
 
-  #tokenPanel .inline-actions {
-    gap: 0.25rem;
-    flex-wrap: wrap;
+  #tokenPanel .token-key-actions {
     justify-content: flex-end;
   }
 
+  #tokenPanel .token-secondary-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-card);
+    overflow-wrap: anywhere;
+  }
+
+  #tokenPanel .token-secondary-cell::before {
+    content: attr(data-mobile-label);
+    font-size: 0.72rem;
+    line-height: 1.2;
+    color: var(--color-text-sub);
+  }
+
+  #tokenPanel .token-actions-cell {
+    min-width: 0;
+  }
+
+  #tokenPanel .mobile-inline-action {
+    display: inline-flex;
+  }
+
+  #tokenPanel .token-cell-actions .inline-actions .desktop-inline-action {
+    display: none !important;
+  }
+
+  #tokenPanel .inline-actions {
+    gap: 0.4rem;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  #tokenPanel .token-key-actions .btn-ghost-primary,
   #tokenPanel .inline-actions .btn-ghost-primary {
-    padding: 0.35rem;
-    min-width: 2rem;
-    min-height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.15rem;
+    min-height: 2.15rem;
+    padding: 0.4rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-card);
+  }
+
+  #tokenPanel .btn-toggle-key {
+    min-width: 2.15rem;
+    min-height: 2.15rem;
+  }
+
+  #logPanel #logTableWrap {
+    max-height: min(70vh, 680px);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  #logPanel .modern-table tbody tr {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+      'time time type'
+      'model model model'
+      'token token token'
+      'prompt completion duration'
+      'detail detail detail';
+  }
+
+  #logPanel .log-cell-time {
+    grid-area: time;
+    display: flex;
+    align-items: center;
+  }
+
+  #logPanel .log-cell-type {
+    grid-area: type;
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-start;
+  }
+
+  #logPanel .log-cell-model {
+    grid-area: model;
+  }
+
+  #logPanel .log-cell-token {
+    grid-area: token;
+  }
+
+  #logPanel .log-cell-prompt {
+    grid-area: prompt;
+  }
+
+  #logPanel .log-cell-completion {
+    grid-area: completion;
+  }
+
+  #logPanel .log-cell-duration {
+    grid-area: duration;
+  }
+
+  #logPanel .log-cell-detail {
+    grid-area: detail;
+  }
+
+  #logPanel .modern-table tbody .log-cell-first-token,
+  #logPanel .modern-table tbody .log-cell-rate,
+  #logPanel .modern-table tbody .log-cell-detail:not(.is-error) {
+    display: none !important;
+  }
+
+  #logPanel .mobile-inline-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.72rem;
+    line-height: 1.2;
+    color: var(--color-text-sub);
+  }
+
+  #logPanel .log-cell-model,
+  #logPanel .log-cell-token,
+  #logPanel .log-cell-prompt,
+  #logPanel .log-cell-completion,
+  #logPanel .log-cell-duration,
+  #logPanel .log-cell-detail.is-error {
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-card);
+  }
+
+  #logPanel .log-cell-detail.is-error {
+    border-color: rgba(239, 68, 68, 0.35);
+    background: rgba(239, 68, 68, 0.08);
+  }
+
+  #logPanel .log-cell-detail.is-error .mobile-inline-label {
+    color: var(--color-danger);
+  }
+
+  #logPanel .log-time-text {
+    font-size: 0.82rem;
+  }
+
+  #logPanel .log-metric-value {
+    display: block;
+    font-size: 0.95rem;
+    line-height: 1.25;
+  }
+
+  #logPanel .log-content-error {
+    max-width: none;
+    font-size: 0.82rem;
   }
 
   .pagination {
@@ -1713,39 +2000,45 @@ html[data-theme='dark'] .alert-toast.error {
     padding: 0.55rem 0.5rem;
   }
 
-  #tokenPanel .modern-table th:nth-child(1),
-  #tokenPanel .modern-table td:nth-child(1) {
-    width: 42px;
-    min-width: 42px;
+  #tokenPanel .modern-table tbody tr,
+  #logPanel .modern-table tbody tr {
+    gap: 0.5rem 0.6rem;
+    padding: 0.75rem;
   }
 
-  #tokenPanel .modern-table th:nth-child(3),
-  #tokenPanel .modern-table td:nth-child(3) {
-    min-width: 132px;
+  #tokenPanel .token-primary-text {
+    font-size: 0.92rem;
   }
 
-  #tokenPanel .token-key {
-    max-width: 112px;
+  #tokenPanel .token-key-wrap,
+  #tokenPanel .token-secondary-cell,
+  #logPanel .log-cell-model,
+  #logPanel .log-cell-token,
+  #logPanel .log-cell-prompt,
+  #logPanel .log-cell-completion,
+  #logPanel .log-cell-duration,
+  #logPanel .log-cell-detail.is-error {
+    padding: 0.55rem 0.6rem;
   }
 
-  .btn-toggle-key {
-    min-width: 1.8rem;
-    min-height: 1.8rem;
-    padding: 0.15rem 0.25rem;
+  #tokenPanel .token-key-actions .btn-ghost-primary,
+  #tokenPanel .inline-actions .btn-ghost-primary,
+  #tokenPanel .btn-toggle-key {
+    min-width: 2rem;
+    min-height: 2rem;
+    padding: 0.35rem;
   }
 
-  #tokenPanel .token-actions-cell {
-    min-width: 128px;
+  #logPanel .mobile-inline-label {
+    font-size: 0.68rem;
   }
 
-  #tokenPanel .inline-actions {
-    gap: 0.15rem;
+  #logPanel .log-metric-value {
+    font-size: 0.9rem;
   }
 
-  #tokenPanel .inline-actions .btn-ghost-primary {
-    padding: 0.3rem;
-    min-width: 1.85rem;
-    min-height: 1.85rem;
+  #logPanel .log-content-error {
+    font-size: 0.78rem;
   }
 
   .pagination {
