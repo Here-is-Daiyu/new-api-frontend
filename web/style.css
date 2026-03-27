@@ -9,7 +9,9 @@
 
   --color-bg-body: #0f172a;
   --color-bg-card: #1e293b;
-  --color-bg-input: #020617;
+  --color-bg-surface-subtle: #0f172a;
+  --color-bg-input: var(--color-bg-surface-subtle);
+  --color-bg-navbar: color-mix(in srgb, var(--color-bg-card) 88%, var(--color-bg-body));
   --color-bg-overlay: rgba(0, 0, 0, 0.6);
 
   --color-border: #334155;
@@ -43,7 +45,8 @@ html[data-theme='light'] {
 
   --color-bg-body: #f8fafc;
   --color-bg-card: #ffffff;
-  --color-bg-input: #f1f5f9;
+  --color-bg-surface-subtle: #f1f5f9;
+  --color-bg-input: var(--color-bg-surface-subtle);
   --color-bg-overlay: rgba(255, 255, 255, 0.8);
 
   --color-border: #e2e8f0;
@@ -109,11 +112,7 @@ code, .mono {
   z-index: 50;
   width: 100%;
   border-bottom: 1px solid var(--color-border);
-  background: rgba(15, 23, 42, 0.8);
-}
-
-html[data-theme='light'] .navbar {
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--color-bg-navbar);
 }
 
 .backdrop-blur {
@@ -543,7 +542,7 @@ button {
 }
 
 .card-glass {
-  background: color-mix(in srgb, var(--color-bg-card) 92%, transparent);
+  background: color-mix(in srgb, var(--color-bg-card) 92%, var(--color-bg-body));
   backdrop-filter: blur(8px);
 }
 
@@ -753,7 +752,7 @@ button {
 }
 
 .badge-count {
-  background: var(--color-bg-input);
+  background: var(--color-bg-surface-subtle);
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
   font-size: 0.75rem;
@@ -771,7 +770,7 @@ button {
   gap: 0.75rem;
   margin-bottom: 1.5rem;
   flex-wrap: wrap;
-  background: var(--color-bg-input);
+  background: var(--color-bg-surface-subtle);
   padding: 0.75rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
@@ -975,7 +974,7 @@ select.input-sm {
   position: sticky;
   top: 0;
   z-index: 6;
-  background: var(--color-bg-input);
+  background: var(--color-bg-surface-subtle);
   box-shadow: inset 0 -1px 0 var(--color-border);
 }
 
@@ -986,7 +985,7 @@ select.input-sm {
 }
 
 .modern-table thead th {
-  background: var(--color-bg-input);
+  background: var(--color-bg-surface-subtle);
   color: var(--color-text-sub);
   font-weight: 600;
   text-align: left;
@@ -1007,7 +1006,7 @@ select.input-sm {
 }
 
 .modern-table tbody tr:hover {
-  background: var(--color-bg-input);
+  background: var(--color-bg-surface-subtle);
 }
 
 .inline-actions {
@@ -1124,7 +1123,7 @@ select.input-sm {
 }
 
 .stat-card {
-  background: var(--color-bg-input);
+  background: var(--color-bg-surface-subtle);
   padding: 1rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
@@ -1152,7 +1151,7 @@ select.input-sm {
   text-align: center;
   padding: 0.75rem;
   color: var(--color-text-sub);
-  background: var(--color-bg-input);
+  background: var(--color-bg-surface-subtle);
   border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 0.875rem;
@@ -1160,7 +1159,7 @@ select.input-sm {
 }
 
 .load-more-trigger:hover {
-  background: var(--color-bg-card);
+  background: color-mix(in srgb, var(--color-bg-surface-subtle) 55%, var(--color-bg-card));
   color: var(--color-text-main);
 }
 
@@ -1277,7 +1276,7 @@ select.input-sm {
 .modal-footer {
   padding: 1.25rem 1.5rem;
   border-top: 1px solid var(--color-border);
-  background: var(--color-bg-input);
+  background: var(--color-bg-surface-subtle);
   border-bottom-left-radius: var(--radius-xl);
   border-bottom-right-radius: var(--radius-xl);
 }
@@ -1578,13 +1577,13 @@ html[data-theme='dark'] .alert-toast.error {
     padding: 0.85rem;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    background: var(--color-bg-input);
+    background: var(--color-bg-surface-subtle);
     box-shadow: var(--shadow-sm);
   }
 
   #tokenPanel .modern-table tbody tr:hover,
   #logPanel .modern-table tbody tr:hover {
-    background: var(--color-bg-input);
+    background: var(--color-bg-surface-subtle);
   }
 
   #tokenPanel .modern-table tbody td,
@@ -1662,7 +1661,7 @@ html[data-theme='dark'] .alert-toast.error {
     padding: 0.7rem;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    background: var(--color-bg-card);
+    background: transparent;
   }
 
   #tokenPanel .token-key {
@@ -1680,7 +1679,7 @@ html[data-theme='dark'] .alert-toast.error {
     padding: 0.55rem 0.65rem;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
-    background: var(--color-bg-card);
+    background: transparent;
     overflow-wrap: anywhere;
   }
 
@@ -1719,7 +1718,7 @@ html[data-theme='dark'] .alert-toast.error {
     padding: 0.4rem;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
-    background: var(--color-bg-card);
+    background: transparent;
   }
 
   #tokenPanel .btn-toggle-key {
@@ -1798,12 +1797,17 @@ html[data-theme='dark'] .alert-toast.error {
   #logPanel .log-cell-token,
   #logPanel .log-cell-prompt,
   #logPanel .log-cell-completion,
-  #logPanel .log-cell-duration,
+  #logPanel .log-cell-duration {
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+  }
+
   #logPanel .log-cell-detail.is-error {
     padding: 0.65rem 0.75rem;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
-    background: var(--color-bg-card);
   }
 
   #logPanel .log-cell-detail.is-error {
