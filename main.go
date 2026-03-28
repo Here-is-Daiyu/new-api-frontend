@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -27,6 +30,21 @@ var upstreamHTTPClient = &http.Client{Timeout: 20 * time.Second}
 
 //go:embed web/*
 var webFS embed.FS
+
+type staticAsset struct {
+	fileName    string
+	contentType string
+	data        []byte
+	version     string
+	eTag        string
+}
+
+type staticSite struct {
+	fileServer http.Handler
+	indexHTML  []byte
+	styleCSS   staticAsset
+	appJS      staticAsset
+}
 
 type jsonResponse struct {
 	Success bool        `json:"success"`
@@ -70,6 +88,11 @@ func main() {
 		log.Fatalf("初始化静态资源失败: %v", err)
 	}
 
+	staticSiteHandler, err := newStaticSite(staticFS)
+	if err != nil {
+		log.Fatalf("初始化静态站点失败: %v", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/config", handleConfig)
@@ -78,7 +101,7 @@ func main() {
 	mux.HandleFunc("/api/internal/log/model-suggestions", handleLogModelSuggestions)
 	mux.HandleFunc("/proxy", handleProxy)
 	mux.HandleFunc("/proxy/", handleProxy)
-	mux.Handle("/", http.FileServer(http.FS(staticFS)))
+	mux.Handle("/", staticSiteHandler)
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -110,6 +133,106 @@ func handleConfig(w http.ResponseWriter, _ *http.Request) {
 			"version":          version,
 		},
 	})
+}
+
+func newStaticSite(staticFS fs.FS) (*staticSite, error) {
+	indexHTML, err := fs.ReadFile(staticFS, "index.html")
+	if err != nil {
+		return nil, err
+	}
+
+	styleCSS, err := loadStaticAsset(staticFS, "style.css", "text/css; charset=utf-8")
+	if err != nil {
+		return nil, err
+	}
+
+	appJS, err := loadStaticAsset(staticFS, "app.js", "application/javascript; charset=utf-8")
+	if err != nil {
+		return nil, err
+	}
+
+	replacer := strings.NewReplacer(
+		"__STYLE_CSS_URL__", "/style.css?v="+styleCSS.version,
+		"__APP_JS_URL__", "/app.js?v="+appJS.version,
+	)
+
+	return &staticSite{
+		fileServer: http.FileServer(http.FS(staticFS)),
+		indexHTML:  []byte(replacer.Replace(string(indexHTML))),
+		styleCSS:   styleCSS,
+		appJS:      appJS,
+	}, nil
+}
+
+func loadStaticAsset(staticFS fs.FS, fileName, contentType string) (staticAsset, error) {
+	data, err := fs.ReadFile(staticFS, fileName)
+	if err != nil {
+		return staticAsset{}, err
+	}
+
+	hash := sha256.Sum256(data)
+	version := hex.EncodeToString(hash[:8])
+
+	return staticAsset{
+		fileName:    fileName,
+		contentType: contentType,
+		data:        data,
+		version:     version,
+		eTag:        `"` + version + `"`,
+	}, nil
+}
+
+func (s *staticSite) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/", "/index.html":
+		s.serveIndex(w, r)
+	case "/style.css":
+		s.serveAsset(w, r, s.styleCSS)
+	case "/app.js":
+		s.serveAsset(w, r, s.appJS)
+	default:
+		s.fileServer.ServeHTTP(w, r)
+	}
+}
+
+func (s *staticSite) serveIndex(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store, no-cache, max-age=0, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+	_, _ = w.Write(s.indexHTML)
+}
+
+func (s *staticSite) serveAsset(w http.ResponseWriter, r *http.Request, asset staticAsset) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", asset.contentType)
+	w.Header().Set("ETag", asset.eTag)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if strings.TrimSpace(r.URL.Query().Get("v")) == asset.version {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+	}
+
+	if match := strings.TrimSpace(r.Header.Get("If-None-Match")); match != "" && match == asset.eTag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	http.ServeContent(w, r, asset.fileName, time.Time{}, bytes.NewReader(asset.data))
 }
 
 func handleFaviconPNG(w http.ResponseWriter, r *http.Request) {

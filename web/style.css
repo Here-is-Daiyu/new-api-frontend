@@ -85,13 +85,24 @@ html,
 body {
   margin: 0;
   padding: 0;
-  height: 100%;
+  width: 100%;
+  max-width: 100%;
+  min-height: 100%;
   font-family: var(--font-sans);
   background-color: var(--color-bg-body);
   color: var(--color-text-main);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+html,
+body {
+  overflow-x: hidden;
+}
+
+body {
+  overflow-y: auto;
 }
 
 code, .mono {
@@ -103,6 +114,8 @@ code, .mono {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
 }
 
 /* Navbar */
@@ -194,11 +207,17 @@ code, .mono {
 
 /* Main Content */
 .main-content {
-  flex: 1;
+  flex: 1 1 auto;
   width: 100%;
+  min-width: 0;
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem 1.5rem;
+}
+
+.dashboard-container,
+.tab-panel {
+  min-width: 0;
 }
 
 .auth-form {
@@ -676,6 +695,18 @@ button {
   gap: 0.5rem;
 }
 
+.user-actions .btn-ghost {
+  white-space: nowrap;
+}
+
+#openConsoleLogBtn {
+  padding: 0.5rem 0.75rem;
+}
+
+.user-action-label {
+  display: inline-block;
+}
+
 .text-danger {
   color: var(--color-danger);
 }
@@ -1037,6 +1068,13 @@ select.input-sm {
   word-break: break-all;
 }
 
+.token-key-placeholder {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  letter-spacing: 0.02em;
+}
+
 .btn-toggle-key {
   display: inline-flex;
   align-items: center;
@@ -1047,6 +1085,12 @@ select.input-sm {
   flex: 0 0 auto;
   font-size: 1rem;
   line-height: 1;
+}
+
+.btn-toggle-key svg {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
 }
 
 .mobile-inline-action,
@@ -1381,6 +1425,7 @@ html[data-theme='dark'] .alert-toast.error {
   }
 
   .main-content {
+    max-width: 100%;
     padding: 1.25rem 1rem 1.75rem;
   }
 
@@ -1403,20 +1448,93 @@ html[data-theme='dark'] .alert-toast.error {
   }
 
   .user-bar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 1rem;
-    padding: 1rem;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.95rem 1rem;
   }
 
   .user-info {
-    border-bottom: 1px solid var(--color-border);
-    padding-bottom: 1rem;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 0.75rem;
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+
+  .user-details {
+    min-width: 0;
+    gap: 0.2rem;
+  }
+
+  .user-meta {
+    margin-bottom: 0;
+  }
+
+  .user-name {
+    font-size: 1rem;
+    margin-bottom: 0.15rem;
+  }
+
+  .user-badges {
+    gap: 0.35rem;
+  }
+
+  .user-status-dot {
+    white-space: nowrap;
+  }
+
+  .avatar-placeholder {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .avatar-placeholder svg {
+    width: 1.35rem;
+    height: 1.35rem;
   }
 
   .user-actions {
+    flex: 0 0 auto;
+    margin-left: auto;
+    gap: 0.25rem;
+    padding: 0;
+    align-items: center;
     justify-content: flex-end;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    border: none;
+    background: transparent;
+  }
+
+  .user-actions .button-loading-wrap,
+  .user-actions > button {
+    flex: 0 0 auto;
+  }
+
+  .user-actions .btn-ghost {
+    min-width: 2.35rem;
+    min-height: 2.35rem;
+    padding: 0.45rem;
+  }
+
+  .user-actions #openConsoleLogBtn {
+    padding: 0.45rem 0.65rem;
+  }
+
+  #tokenFilterForm {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: stretch;
+  }
+
+  #tokenFilterForm #tokenKeywordInput {
+    grid-column: 1 / -1;
+  }
+
+  #tokenFilterForm > button {
+    width: auto;
+    min-width: 4.75rem;
   }
 
   .tabs-nav {
@@ -1487,6 +1605,38 @@ html[data-theme='dark'] .alert-toast.error {
     justify-content: center;
   }
 
+  #tokenPanel .panel-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  #tokenPanel .panel-title {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  #tokenPanel .panel-actions {
+    width: auto;
+    margin-left: auto;
+    gap: 0.45rem;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+  }
+
+  #tokenPanel .panel-actions .button-loading-wrap,
+  #tokenPanel .panel-actions > button,
+  #tokenPanel .panel-actions > .btn-primary,
+  #tokenPanel .panel-actions > .btn-secondary {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  #tokenPanel .panel-actions .btn-sm {
+    white-space: nowrap;
+  }
+
   .filter-bar,
   .filter-grid {
     flex-direction: column;
@@ -1510,12 +1660,14 @@ html[data-theme='dark'] .alert-toast.error {
 
   .filter-actions {
     gap: 0.65rem;
-    justify-content: stretch;
+    justify-content: flex-start;
     padding-top: 0.65rem;
+    flex-wrap: wrap;
   }
 
   .filter-actions > * {
-    flex: 1 1 0;
+    flex: 0 0 auto;
+    min-width: 4.75rem;
   }
 
   .stats-grid {
@@ -1655,43 +1807,58 @@ html[data-theme='dark'] .alert-toast.error {
   }
 
   #tokenPanel .token-key-wrap {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.5rem;
-    padding: 0.7rem;
+    flex-direction: row;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.5rem;
+    padding: 0.55rem 0.65rem;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    background: transparent;
+    background: var(--color-bg-card);
   }
 
   #tokenPanel .token-key {
+    flex: 1 1 12rem;
     max-width: 100%;
   }
 
   #tokenPanel .token-key-actions {
+    margin-left: auto;
     justify-content: flex-end;
   }
 
   #tokenPanel .token-secondary-cell {
     display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    padding: 0.55rem 0.65rem;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.45rem;
+    padding: 0;
+    border: none;
+    border-radius: 0;
     background: transparent;
     overflow-wrap: anywhere;
   }
 
   #tokenPanel .token-secondary-cell::before {
     content: attr(data-mobile-label);
-    font-size: 0.72rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.12rem 0.45rem;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: var(--color-bg-card);
+    font-size: 0.7rem;
     line-height: 1.2;
     color: var(--color-text-sub);
   }
 
   #tokenPanel .token-actions-cell {
     min-width: 0;
+  }
+
+  #tokenPanel .token-cell-actions {
+    padding-top: 0.55rem;
+    border-top: 1px solid var(--color-border);
   }
 
   #tokenPanel .mobile-inline-action {
@@ -1704,7 +1871,7 @@ html[data-theme='dark'] .alert-toast.error {
 
   #tokenPanel .inline-actions {
     gap: 0.4rem;
-    justify-content: flex-end;
+    justify-content: flex-start;
     flex-wrap: wrap;
   }
 
@@ -1718,7 +1885,7 @@ html[data-theme='dark'] .alert-toast.error {
     padding: 0.4rem;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
-    background: transparent;
+    background: var(--color-bg-card);
   }
 
   #tokenPanel .btn-toggle-key {
@@ -1980,7 +2147,8 @@ html[data-theme='dark'] .alert-toast.error {
   }
 
   .filter-actions {
-    flex-direction: column;
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .stats-grid {
@@ -2025,6 +2193,10 @@ html[data-theme='dark'] .alert-toast.error {
     padding: 0.55rem 0.6rem;
   }
 
+  #tokenPanel .token-secondary-cell {
+    padding: 0;
+  }
+
   #tokenPanel .token-key-actions .btn-ghost-primary,
   #tokenPanel .inline-actions .btn-ghost-primary,
   #tokenPanel .btn-toggle-key {
@@ -2045,6 +2217,22 @@ html[data-theme='dark'] .alert-toast.error {
     font-size: 0.78rem;
   }
 
+  #tokenPanel .panel-header {
+    gap: 0.65rem;
+  }
+
+  #tokenPanel .panel-actions {
+    flex-direction: row;
+    gap: 0.4rem;
+  }
+
+  #tokenPanel .panel-actions .button-loading-wrap,
+  #tokenPanel .panel-actions > button,
+  #tokenPanel .panel-actions > .btn-primary,
+  #tokenPanel .panel-actions > .btn-secondary {
+    width: auto;
+  }
+
   .pagination {
     gap: 0.5rem;
   }
@@ -2062,5 +2250,87 @@ html[data-theme='dark'] .alert-toast.error {
   .modal-body,
   .modal-footer {
     padding: 0.85rem;
+  }
+}
+
+@media (max-width: 640px) {
+  #openConsoleLogBtn {
+    gap: 0;
+    padding: 0.45rem;
+  }
+
+  #openConsoleLogBtn .user-action-label {
+    display: none;
+  }
+}
+
+@media (max-width: 440px) {
+  .user-bar {
+    gap: 0.65rem;
+    padding: 0.85rem;
+  }
+
+  .user-info {
+    gap: 0.65rem;
+    padding-bottom: 0;
+  }
+
+  .avatar-placeholder {
+    width: 2.3rem;
+    height: 2.3rem;
+  }
+
+  .avatar-placeholder svg {
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+
+  .user-name {
+    font-size: 0.95rem;
+  }
+
+  .user-badges {
+    gap: 0.25rem;
+  }
+
+  .user-actions {
+    gap: 0.3rem;
+  }
+
+  .user-actions .btn-ghost {
+    min-width: 2.1rem;
+    min-height: 2.1rem;
+    padding: 0.4rem;
+  }
+
+  #tokenPanel .modern-table tbody tr {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem 0.55rem;
+    padding: 0.7rem;
+    grid-template-areas:
+      'name status'
+      'id id'
+      'key key'
+      'quota quota'
+      'expired expired'
+      'actions actions';
+  }
+
+  #tokenPanel .token-cell-status {
+    justify-content: flex-end;
+    align-items: center;
+  }
+
+  #tokenPanel .token-key-wrap {
+    gap: 0.4rem 0.45rem;
+    padding: 0.5rem 0.55rem;
+  }
+
+  #tokenPanel .token-cell-actions {
+    padding-top: 0.5rem;
+  }
+
+  #tokenPanel .token-secondary-cell {
+    gap: 0.25rem 0.4rem;
   }
 }
