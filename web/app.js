@@ -175,6 +175,7 @@
     dom.dashboard = document.getElementById('dashboard')
     dom.userInfoText = document.getElementById('userInfoText')
     dom.refreshSelfBtn = document.getElementById('refreshSelfBtn')
+    dom.openConsoleLogBtn = document.getElementById('openConsoleLogBtn')
     dom.logoutBtn = document.getElementById('logoutBtn')
 
     dom.tabButtons = document.querySelectorAll('.tab-btn')
@@ -251,6 +252,7 @@
 
     dom.loginForm.addEventListener('submit', handleLogin)
     dom.refreshSelfBtn.addEventListener('click', handleRefreshSelf)
+    dom.openConsoleLogBtn.addEventListener('click', handleOpenConsoleLog)
     dom.logoutBtn.addEventListener('click', handleLogout)
 
     dom.tabButtons.forEach((btn) => {
@@ -566,6 +568,16 @@
     }
   }
 
+  function handleOpenConsoleLog() {
+    try {
+      const activeBaseURL = getActiveBaseURL()
+      const targetURL = buildUpstreamURL(activeBaseURL, '/console/log')
+      window.open(targetURL, '_blank', 'noopener')
+    } catch (err) {
+      showAlert('打开控制台日志失败：' + (err.message || '请先检查 BaseURL 配置'), 'error', 0)
+    }
+  }
+
   async function handleLogout() {
     try {
       setButtonLoading(dom.logoutBtn, true, '退出中...')
@@ -715,9 +727,10 @@
         const id = toNonNegativeInt(token.id, 0)
         const fullKey = normalizeTokenKey(token.key)
         const isKeyVisible = state.token.visibleKeyIds.has(id)
-        const keyText = escapeHtml(fullKey ? (isKeyVisible ? fullKey : maskTokenKey(fullKey)) : '-')
+        const keyContent = formatTokenKeyDisplay(fullKey, isKeyVisible)
         const nameText = escapeHtml(String(token.name || '-'))
-        const toggleKeyTitle = isKeyVisible ? '隐藏完整 Key' : '显示完整 Key'
+        const toggleKeyTitle = isKeyVisible ? '隐藏完整 Key' : '查看完整 Key'
+        const toggleKeyIcon = getTokenKeyToggleIcon(isKeyVisible)
         const statusLabel = TOKEN_STATUS_TEXT[token.status] || '未知'
 
         let statusClass = 'badge'
@@ -740,10 +753,10 @@
             <td class="token-cell token-cell-name"><div class="token-primary-text">${nameText}</div></td>
             <td class="token-cell token-cell-key token-key-cell">
               <span class="token-key-wrap">
-                <code class="mono token-key">${keyText}</code>
+                ${keyContent}
                 ${fullKey
                   ? `<span class="token-key-actions">
-                      <button class="btn-ghost-primary btn-toggle-key" type="button" data-action="toggle-key" data-id="${id}" title="${toggleKeyTitle}" aria-pressed="${isKeyVisible ? 'true' : 'false'}"><span class="sr-only">${toggleKeyTitle}</span><span aria-hidden="true">${isKeyVisible ? '🙈' : '👁'}</span></button>
+                      <button class="btn-ghost-primary btn-toggle-key" type="button" data-action="toggle-key" data-id="${id}" title="${toggleKeyTitle}" aria-label="${toggleKeyTitle}" aria-pressed="${isKeyVisible ? 'true' : 'false'}"><span class="sr-only">${toggleKeyTitle}</span><span aria-hidden="true">${toggleKeyIcon}</span></button>
                       <button class="btn-ghost-primary mobile-inline-action token-key-copy-btn" type="button" data-action="copy" data-id="${id}" title="复制 Key">
                         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                       </button>
@@ -1064,8 +1077,8 @@
 
         options.push({
           key,
-          label: formatModelApiKeyLabel(tokenName, key),
-          rawLabel: `${tokenName} (${key})`,
+          label: formatModelApiKeyLabel(tokenName),
+          rawLabel: `${tokenName}（Key 已隐藏）`,
           isAvailable: tokenStatus === 1
         })
       })
@@ -2231,6 +2244,14 @@
     return url.toString()
   }
 
+  function buildUpstreamURL(baseURL, path) {
+    const url = new URL(normalizeBaseURL(baseURL))
+    url.pathname = joinURLPath(url.pathname, path)
+    url.search = ''
+    url.hash = ''
+    return url.toString()
+  }
+
   function syncBaseURLFromInput() {
     const inputValue = dom.baseUrlInput.value.trim()
     if (!inputValue) {
@@ -2327,6 +2348,17 @@
     parsed.hash = ''
 
     return parsed.toString().replace(/\/+$/, '')
+  }
+
+  function joinURLPath(basePath, requestPath) {
+    const normalizedBasePath = String(basePath || '').replace(/\/+$/, '')
+    const normalizedRequestPath = String(requestPath || '').startsWith('/') ? String(requestPath || '') : `/${String(requestPath || '')}`
+
+    if (!normalizedBasePath || normalizedBasePath === '/') {
+      return normalizedRequestPath || '/'
+    }
+
+    return `${normalizedBasePath}${normalizedRequestPath || '/'}`
   }
 
   function showAlert(message, type = 'info', autoHideMs = 4000) {
@@ -2426,14 +2458,24 @@
     return `sk-${key}`
   }
 
-  function maskTokenKey(raw) {
-    const key = normalizeTokenKey(raw)
-    if (!key) {
-      return ''
+  function formatTokenKeyDisplay(fullKey, isVisible) {
+    if (!fullKey) {
+      return '<span class="token-key token-key-placeholder text-sub">-</span>'
     }
 
-    const visibleLength = key.length <= 12 ? 4 : 8
-    return `${key.slice(0, visibleLength)}****`
+    if (!isVisible) {
+      return '<span class="token-key token-key-placeholder text-sub">已隐藏</span>'
+    }
+
+    return `<code class="mono token-key">${escapeHtml(fullKey)}</code>`
+  }
+
+  function getTokenKeyToggleIcon(isVisible) {
+    if (isVisible) {
+      return '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20C5 20 1 12 1 12a21.8 21.8 0 0 1 5.06-5.94"></path><path d="M9.9 4.24A10.7 10.7 0 0 1 12 4c7 0 11 8 11 8a21.79 21.79 0 0 1-3.22 4.31"></path><path d="M14.12 14.12A3 3 0 0 1 9.88 9.88"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>'
+    }
+
+    return '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>'
   }
 
   function toggleTokenKeyVisibility(tokenId) {
@@ -2446,10 +2488,9 @@
     renderTokenTable()
   }
 
-  function formatModelApiKeyLabel(tokenName, key) {
+  function formatModelApiKeyLabel(tokenName) {
     const safeName = truncateMiddle(String(tokenName || ''), 26, 14, 8)
-    const safeKey = truncateMiddle(String(key || ''), 24, 8, 8)
-    return `${safeName} (${safeKey})`
+    return `${safeName}（Key 已隐藏）`
   }
 
   function syncSelectTitle(selectElement) {
