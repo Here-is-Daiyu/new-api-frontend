@@ -1375,6 +1375,15 @@ select.input-sm {
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
+.alert-toast-fade-out {
+  animation: fadeOutToast 0.4s ease-in forwards;
+}
+
+@keyframes fadeOutToast {
+  from { opacity: 1; transform: translate(-50%, 0); }
+  to { opacity: 0; transform: translate(-50%, -10px); }
+}
+
 .alert-toast.info {
   background: var(--color-bg-card);
   border: 1px solid var(--color-border);

@@ -77,6 +77,7 @@
     apiUserId: '',
     user: null,
     alertTimer: null,
+    alertFadeTimer: null,
     token: {
       page: 1,
       pageSize: 10,
@@ -132,7 +133,7 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     init().catch((err) => {
-      showAlert('初始化失败：' + (err.message || '未知错误'), 'error', 0)
+      showAlert('初始化失败：' + (err.message || '未知错误'), 'error')
       console.error(err)
     })
   })
@@ -413,7 +414,7 @@
       }
       showAlert('BaseURL 保存成功', 'success')
     } catch (err) {
-      showAlert(err.message || 'BaseURL 无效', 'error', 0)
+      showAlert(err.message || 'BaseURL 无效', 'error')
     }
   }
 
@@ -550,7 +551,7 @@
       void prefetchLogPanel().catch(() => {})
       showAlert('登录成功', 'success')
     } catch (err) {
-      showAlert('登录失败：' + (err.message || '未知错误'), 'error', 0)
+      showAlert('登录失败：' + (err.message || '未知错误'), 'error')
     } finally {
       setButtonLoading(dom.loginBtn, false)
     }
@@ -563,7 +564,7 @@
         showAlert('会话已刷新', 'success')
       })
     } catch (err) {
-      showAlert('会话刷新失败：' + (err.message || '未知错误'), 'error', 0)
+      showAlert('会话刷新失败：' + (err.message || '未知错误'), 'error')
       showLoggedOutState()
     }
   }
@@ -574,7 +575,7 @@
       const targetURL = buildUpstreamURL(activeBaseURL, '/console/log')
       window.open(targetURL, '_blank', 'noopener')
     } catch (err) {
-      showAlert('打开控制台日志失败：' + (err.message || '请先检查 BaseURL 配置'), 'error', 0)
+      showAlert('打开控制台日志失败：' + (err.message || '请先检查 BaseURL 配置'), 'error')
     }
   }
 
@@ -587,7 +588,7 @@
       showLoggedOutState()
       showAlert('已退出登录', 'info')
     } catch (err) {
-      showAlert('退出失败：' + (err.message || '未知错误'), 'error', 0)
+      showAlert('退出失败：' + (err.message || '未知错误'), 'error')
     } finally {
       setButtonLoading(dom.logoutBtn, false)
     }
@@ -710,7 +711,7 @@
       }
 
       if (showError) {
-        showAlert('加载 Token 失败：' + (err.message || '未知错误'), 'error', 0)
+        showAlert('加载 Token 失败：' + (err.message || '未知错误'), 'error')
       }
       throw err
     }
@@ -842,17 +843,17 @@
       return
     }
 
-    const key = normalizeTokenKey(token.key)
-    if (!key) {
-      showAlert('该 Token 没有可复制的 Key', 'warning')
-      return
-    }
-
     try {
-      await copyText(key)
+      const data = await apiRequest(`/api/token/${tokenId}/key`)
+      const fullKey = normalizeTokenKey(data?.key)
+      if (!fullKey) {
+        showAlert('该 Token 没有可复制的 Key', 'warning')
+        return
+      }
+      await copyText(fullKey)
       showAlert('Key 已复制到剪贴板', 'success')
     } catch (err) {
-      showAlert('复制失败：' + (err.message || '未知错误'), 'error', 0)
+      showAlert('复制失败：' + (err.message || '未知错误'), 'error')
     }
   }
 
@@ -937,7 +938,7 @@
       closeTokenModal()
       await loadTokens(true)
     } catch (err) {
-      showAlert('保存 Token 失败：' + (err.message || '未知错误'), 'error', 0)
+      showAlert('保存 Token 失败：' + (err.message || '未知错误'), 'error')
     } finally {
       setButtonLoading(dom.saveTokenBtn, false)
     }
@@ -1015,7 +1016,7 @@
       showAlert(`Token 已${targetStatus === 1 ? '启用' : '禁用'}`, 'success')
       await loadTokens(true)
     } catch (err) {
-      showAlert('状态切换失败：' + (err.message || '未知错误'), 'error', 0)
+      showAlert('状态切换失败：' + (err.message || '未知错误'), 'error')
     } finally {
       setButtonLoading(button, false)
     }
@@ -1033,7 +1034,7 @@
       showAlert('Token 删除成功', 'success')
       await loadTokens(true)
     } catch (err) {
-      showAlert('删除 Token 失败：' + (err.message || '未知错误'), 'error', 0)
+      showAlert('删除 Token 失败：' + (err.message || '未知错误'), 'error')
     } finally {
       setButtonLoading(button, false)
     }
@@ -1097,7 +1098,7 @@
       renderModelApiKeyOptions()
     } catch (err) {
       if (showError) {
-        showAlert('加载 API Key 列表失败：' + (err.message || '未知错误'), 'error', 0)
+        showAlert('加载 API Key 列表失败：' + (err.message || '未知错误'), 'error')
       }
       throw err
     }
@@ -1200,7 +1201,7 @@
       }
 
       if (showError) {
-        showAlert('加载模型失败：' + (err.message || '未知错误'), 'error', 0)
+        showAlert('加载模型失败：' + (err.message || '未知错误'), 'error')
       }
       throw err
     } finally {
@@ -1395,7 +1396,7 @@
       renderLogTokenOptions()
     } catch (err) {
       if (showError) {
-        showAlert('加载日志 Token 下拉失败：' + (err.message || '未知错误'), 'error', 0)
+        showAlert('加载日志 Token 下拉失败：' + (err.message || '未知错误'), 'error')
       }
       throw err
     }
@@ -1802,7 +1803,7 @@
 
       const errorMessage = err.message || '未知错误'
       if (showError) {
-        showAlert('加载日志失败：' + errorMessage, 'error', 0)
+        showAlert('加载日志失败：' + errorMessage, 'error')
       }
       throw err
     } finally {
@@ -1884,7 +1885,7 @@
 
       state.log.lastError = err.message || '未知错误'
       if (showError) {
-        showAlert('加载日志失败：' + state.log.lastError, 'error', 0)
+        showAlert('加载日志失败：' + state.log.lastError, 'error')
       }
     } finally {
       if (requestVersion !== state.log.requestVersion) {
@@ -2361,7 +2362,7 @@
     return `${normalizedBasePath}${normalizedRequestPath || '/'}`
   }
 
-  function showAlert(message, type = 'info', autoHideMs = 4000) {
+  function showAlert(message, type = 'info', autoHideMs) {
     if (!message) {
       dom.alertBox.classList.add('hidden')
       return
@@ -2371,13 +2372,26 @@
       clearTimeout(state.alertTimer)
       state.alertTimer = null
     }
+    if (state.alertFadeTimer) {
+      clearTimeout(state.alertFadeTimer)
+      state.alertFadeTimer = null
+    }
+
+    if (autoHideMs === undefined) {
+      autoHideMs = type === 'error' ? 6000 : 4000
+    }
 
     dom.alertBox.textContent = message
     dom.alertBox.className = `alert-toast ${type}`
 
     if (autoHideMs > 0) {
+      const fadeOutDuration = 400
       state.alertTimer = window.setTimeout(() => {
-        dom.alertBox.classList.add('hidden')
+        dom.alertBox.classList.add('alert-toast-fade-out')
+        state.alertFadeTimer = window.setTimeout(() => {
+          dom.alertBox.classList.add('hidden')
+          dom.alertBox.classList.remove('alert-toast-fade-out')
+        }, fadeOutDuration)
       }, autoHideMs)
     }
   }
