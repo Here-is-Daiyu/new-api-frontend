@@ -795,6 +795,12 @@ button {
   gap: 0.75rem;
 }
 
+#modelKeySelect {
+  flex: 1 1 220px;
+  min-width: 180px;
+  max-width: 320px;
+}
+
 /* Filters */
 .filter-bar, .filter-grid {
   display: flex;
@@ -930,17 +936,6 @@ select.input-sm {
   padding: 0.45rem 0.55rem;
   color: var(--color-text-sub);
   font-size: 0.85rem;
-}
-
-#modelFilterForm #modelApiKeySelect {
-  min-width: 320px;
-  max-width: 100%;
-  flex: 1 1 520px;
-  font-family: var(--font-mono);
-}
-
-#modelFilterForm #modelApiKeySelect .custom-select-trigger {
-  font-family: inherit;
 }
 
 #tokenFilterForm #tokenPageSizeSelect {
@@ -1646,6 +1641,11 @@ html[data-theme='dark'] .alert-toast.error {
     white-space: nowrap;
   }
 
+  #modelKeySelect {
+    min-width: 0;
+    max-width: none;
+  }
+
   .filter-bar,
   .filter-grid {
     flex-direction: column;
@@ -1661,7 +1661,6 @@ html[data-theme='dark'] .alert-toast.error {
     min-width: 0;
   }
 
-  #modelFilterForm #modelApiKeySelect,
   #tokenFilterForm #tokenPageSizeSelect {
     min-width: 0;
     flex: 1 1 auto;
@@ -2342,4 +2341,126 @@ html[data-theme='dark'] .alert-toast.error {
   #tokenPanel .token-secondary-cell {
     gap: 0.25rem 0.4rem;
   }
+}
+
+/* ========== 模型列表容器（可用模型面板） ========== */
+.model-list-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+  min-height: 60px;
+}
+
+.model-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 5px 12px;
+  border-radius: 6px;
+  background: var(--color-bg-surface-subtle);
+  border: 1px solid var(--color-border);
+  font-size: 13px;
+  line-height: 1.4;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.model-tag:hover {
+  background: var(--color-bg-input);
+  border-color: var(--color-primary);
+}
+
+.model-tag code {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 12.5px;
+  color: var(--color-text-main);
+  word-break: break-all;
+}
+
+.model-tag-owner {
+  font-size: 0.75em;
+  opacity: 0.6;
+  margin-left: 4px;
+}
+
+.model-list-empty {
+  width: 100%;
+  text-align: center;
+  padding: 32px 0;
+  color: var(--color-text-sub);
+  font-size: 14px;
+}
+
+/* ========== Token 模态框：模型限制建议 ========== */
+.model-limits-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.model-limits-input-row textarea {
+  flex: 1;
+  min-width: 0;
+}
+
+.model-limits-input-row .btn-ghost {
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.model-suggest-dropdown {
+  position: relative;
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-card);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px;
+}
+
+.model-suggest-dropdown.hidden {
+  display: none;
+}
+
+.model-suggest-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 5px;
+  background: var(--color-bg-surface-subtle);
+  border: 1px solid var(--color-border);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  color: var(--color-text-main);
+}
+
+.model-suggest-item:hover {
+  background: var(--color-bg-input);
+  border-color: var(--color-primary);
+}
+
+.model-suggest-item.selected {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.model-suggest-item.selected:hover {
+  opacity: 0.85;
+}
+
+.model-suggest-loading {
+  width: 100%;
+  text-align: center;
+  padding: 12px 0;
+  color: var(--color-text-sub);
+  font-size: 13px;
 }

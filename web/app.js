@@ -93,7 +93,7 @@
       loaded: false,
       selectedApiKey: '',
       apiKeys: [],
-      manualSelection: false
+      apiKeysLoaded: false
     },
     log: {
       page: 1,
@@ -145,8 +145,7 @@
     syncTokenQuotaInputState()
     renderTokenPageSizeOptions()
     renderTokenStatusOptions()
-    renderModelApiKeyOptions()
-    renderModelTable()
+    renderModelList()
     renderLogTypeOptions()
     renderLogTokenOptions()
     renderLogModelSuggestions()
@@ -196,10 +195,9 @@
     dom.tokenTotalBadge = document.getElementById('tokenTotalBadge')
 
     dom.modelPanel = document.getElementById('modelPanel')
+    dom.modelKeySelect = document.getElementById('modelKeySelect')
     dom.refreshModelBtn = document.getElementById('refreshModelBtn')
-    dom.modelFilterForm = document.getElementById('modelFilterForm')
-    dom.modelApiKeySelect = document.getElementById('modelApiKeySelect')
-    dom.modelTableBody = document.getElementById('modelTableBody')
+    dom.modelListContainer = document.getElementById('modelListContainer')
     dom.modelTotalBadge = document.getElementById('modelTotalBadge')
 
     dom.logPanel = document.getElementById('logPanel')
@@ -233,18 +231,22 @@
     dom.tokenUnlimitedInput = document.getElementById('tokenUnlimitedInput')
     dom.tokenModelLimitEnabledInput = document.getElementById('tokenModelLimitEnabledInput')
     dom.tokenModelLimitsInput = document.getElementById('tokenModelLimitsInput')
+    dom.tokenModelSuggestBtn = document.getElementById('tokenModelSuggestBtn')
+    dom.tokenModelSuggestDropdown = document.getElementById('tokenModelSuggestDropdown')
     dom.tokenAllowIpsInput = document.getElementById('tokenAllowIpsInput')
-    dom.tokenGroupInput = document.getElementById('tokenGroupInput')
+    dom.tokenGroupSelect = document.getElementById('tokenGroupSelect')
     dom.tokenCrossGroupRetryInput = document.getElementById('tokenCrossGroupRetryInput')
     dom.saveTokenBtn = document.getElementById('saveTokenBtn')
 
     initCustomSelect(dom.tokenPageSizeSelect)
     initCustomSelect(dom.tokenStatusSelect)
-    initCustomSelect(dom.modelApiKeySelect)
     initCustomSelect(dom.logTypeSelect)
     initCustomSelect(dom.logTokenNameInput)
     initCustomSelect(dom.logModelSelect)
     initCustomSelect(dom.logGroupSelect)
+    initCustomSelect(dom.tokenGroupSelect)
+    initCustomSelect(dom.modelKeySelect)
+    renderModelKeyOptions()
   }
 
   function bindEvents() {
@@ -276,17 +278,22 @@
     bindDatetimeAutoComplete(dom.tokenExpireInput)
 
     dom.refreshModelBtn.addEventListener('click', () => {
-      void runWithButtonLoading(dom.refreshModelBtn, () => refreshModels(true, { silent: true })).catch(() => {})
+      void runWithButtonLoading(dom.refreshModelBtn, async () => {
+        await loadModelKeyOptions()
+        await refreshModels(true, { silent: true })
+      }).catch(() => {})
     })
-    dom.modelFilterForm.addEventListener('submit', handleModelFilter)
-    setCustomSelectOnChange(dom.modelApiKeySelect, () => {
-      handleModelApiKeyChange()
-    })
+    dom.tokenModelSuggestBtn.addEventListener('click', handleTokenModelSuggest)
     setCustomSelectOnChange(dom.tokenStatusSelect, () => {
       syncSelectTitle(dom.tokenStatusSelect)
     })
     setCustomSelectOnChange(dom.tokenPageSizeSelect, () => {
       syncSelectTitle(dom.tokenPageSizeSelect)
+    })
+    setCustomSelectOnChange(dom.modelKeySelect, (value) => {
+      syncSelectTitle(dom.modelKeySelect)
+      state.model.selectedApiKey = String(value || '').trim()
+      void runWithButtonLoading(dom.refreshModelBtn, () => refreshModels(true)).catch(() => {})
     })
 
     dom.refreshLogBtn.addEventListener('click', () => {
@@ -454,7 +461,7 @@
     state.model.loaded = false
     state.model.selectedApiKey = ''
     state.model.apiKeys = []
-    state.model.manualSelection = false
+    state.model.apiKeysLoaded = false
 
     state.log.requestVersion += 1
     state.log.loaded = false
@@ -483,8 +490,8 @@
     setCustomSelectValue(dom.logGroupSelect, '', { silent: true })
 
     renderTokenPageSizeOptions()
-    renderModelApiKeyOptions()
-    renderModelTable()
+    renderModelKeyOptions()
+    renderModelList()
     renderLogTypeOptions()
     renderLogTokenOptions()
     renderLogModelSuggestions()
@@ -535,7 +542,7 @@
       })
 
       if (data?.require_2fa) {
-        showAlert('该账号开启了 2FA，请先在官方面板完成 2FA 登录', 'warning', 0)
+        showAlert('该账号开启了 2FA，请先在官方面板完成 2FA 登录', 'warning')
         return
       }
 
@@ -626,8 +633,16 @@
       panel.classList.toggle('show', isActive)
     })
 
-    if (panelId === 'modelPanel' && state.user && !state.model.loaded) {
-      void refreshModels(true).catch(() => {})
+    if (panelId === 'modelPanel' && state.user) {
+      void (async () => {
+        const shouldReloadModelKeys = !state.model.apiKeysLoaded
+        if (shouldReloadModelKeys) {
+          await loadModelKeyOptions()
+        }
+        if (!state.model.loaded || shouldReloadModelKeys) {
+          await refreshModels(true)
+        }
+      })().catch(() => {})
     }
 
     if (panelId === 'logPanel' && state.user && !state.log.loaded) {
@@ -844,8 +859,7 @@
     }
 
     try {
-      const data = await apiRequest(`/api/token/${tokenId}/key`)
-      const fullKey = normalizeTokenKey(data?.key)
+      const fullKey = await fetchTokenFullKey(tokenId)
       if (!fullKey) {
         showAlert('该 Token 没有可复制的 Key', 'warning')
         return
@@ -861,6 +875,11 @@
     return state.token.items.find((item) => toNonNegativeInt(item.id, 0) === tokenId) || null
   }
 
+  async function fetchTokenFullKey(tokenId) {
+    const data = await apiRequest(`/api/token/${tokenId}/key`, { method: 'POST' })
+    return normalizeTokenKey(data?.key)
+  }
+
   function openCreateTokenModal() {
     dom.tokenModalTitle.textContent = '新建 Token'
     dom.tokenForm.reset()
@@ -868,13 +887,15 @@
     setCustomSelectValue(dom.tokenStatusSelect, '1', { silent: true })
     dom.tokenQuotaInput.value = '0'
     dom.tokenExpireInput.value = ''
-    dom.tokenGroupInput.value = ''
+    setCustomSelectValue(dom.tokenGroupSelect, '', { silent: true })
     dom.tokenModelLimitsInput.value = ''
     dom.tokenAllowIpsInput.value = ''
     dom.tokenModelLimitEnabledInput.checked = false
     dom.tokenUnlimitedInput.checked = false
     dom.tokenCrossGroupRetryInput.checked = false
+    closeTokenModelSuggestDropdown()
     syncTokenQuotaInputState()
+    loadTokenGroupOptions()
     dom.tokenModal.classList.remove('hidden')
   }
 
@@ -897,14 +918,17 @@
     dom.tokenModelLimitEnabledInput.checked = Boolean(token.model_limits_enabled)
     dom.tokenModelLimitsInput.value = token.model_limits || ''
     dom.tokenAllowIpsInput.value = token.allow_ips || ''
-    dom.tokenGroupInput.value = token.group || ''
+    setCustomSelectValue(dom.tokenGroupSelect, token.group || '', { silent: true })
     dom.tokenCrossGroupRetryInput.checked = Boolean(token.cross_group_retry)
+    closeTokenModelSuggestDropdown()
     syncTokenQuotaInputState()
+    loadTokenGroupOptions()
     dom.tokenModal.classList.remove('hidden')
   }
 
   function closeTokenModal() {
     dom.tokenModal.classList.add('hidden')
+    closeTokenModelSuggestDropdown()
   }
 
   function syncTokenQuotaInputState() {
@@ -936,6 +960,7 @@
       }
 
       closeTokenModal()
+      state.model.apiKeysLoaded = false
       await loadTokens(true)
     } catch (err) {
       showAlert('保存 Token 失败：' + (err.message || '未知错误'), 'error')
@@ -955,7 +980,7 @@
     const modelLimitsEnabled = dom.tokenModelLimitEnabledInput.checked
     const modelLimits = dom.tokenModelLimitsInput.value.trim()
     const allowIps = dom.tokenAllowIpsInput.value.trim()
-    const group = dom.tokenGroupInput.value.trim()
+    const group = getCustomSelectValue(dom.tokenGroupSelect).trim()
     const crossGroupRetry = dom.tokenCrossGroupRetryInput.checked
 
     if (!name) {
@@ -1014,6 +1039,7 @@
         }
       })
       showAlert(`Token 已${targetStatus === 1 ? '启用' : '禁用'}`, 'success')
+      state.model.apiKeysLoaded = false
       await loadTokens(true)
     } catch (err) {
       showAlert('状态切换失败：' + (err.message || '未知错误'), 'error')
@@ -1032,6 +1058,7 @@
       setButtonLoading(button, true, '删除中...')
       await apiRequest(`/api/token/${tokenId}`, { method: 'DELETE' })
       showAlert('Token 删除成功', 'success')
+      state.model.apiKeysLoaded = false
       await loadTokens(true)
     } catch (err) {
       showAlert('删除 Token 失败：' + (err.message || '未知错误'), 'error')
@@ -1040,133 +1067,88 @@
     }
   }
 
-  function handleModelApiKeyChange() {
-    state.model.manualSelection = true
-    state.model.selectedApiKey = getCustomSelectValue(dom.modelApiKeySelect).trim()
-    syncSelectTitle(dom.modelApiKeySelect)
-  }
-
-  function handleModelFilter(event) {
-    event.preventDefault()
-    handleModelApiKeyChange()
-    void loadModels(true).catch(() => {})
-  }
-
   async function refreshModels(showError, options = {}) {
-    await loadModelApiKeyOptions(showError)
     await loadModels(showError, options)
     state.model.loaded = true
   }
 
-  async function loadModelApiKeyOptions(showError) {
-    try {
-      const tokens = await fetchModelApiKeyTokens()
-      const options = []
-      const seenKeys = new Set()
-
-      tokens.forEach((token) => {
-        const key = normalizeTokenKey(token.key)
-        if (!key || seenKeys.has(key)) {
-          return
-        }
-
-        seenKeys.add(key)
-
-        const tokenId = toNonNegativeInt(token.id, 0)
-        const tokenName = String(token.name || '').trim() || `Token #${tokenId || '-'}`
-        const tokenStatus = Number.parseInt(token.status, 10)
-
-        options.push({
-          key,
-          label: formatModelApiKeyLabel(tokenName),
-          rawLabel: `${tokenName}（Key 已隐藏）`,
-          isAvailable: tokenStatus === 1
-        })
-      })
-
-      state.model.apiKeys = options
-
-      const selectedExists = state.model.apiKeys.some((item) => item.key === state.model.selectedApiKey)
-      const keepManualPublicSelection = state.model.manualSelection && state.model.selectedApiKey === ''
-      const fallbackApiKey =
-        state.model.apiKeys.find((item) => item.isAvailable)?.key || state.model.apiKeys[0]?.key || ''
-
-      if (!selectedExists) {
-        state.model.selectedApiKey = keepManualPublicSelection ? '' : fallbackApiKey
-      }
-
-      renderModelApiKeyOptions()
-    } catch (err) {
-      if (showError) {
-        showAlert('加载 API Key 列表失败：' + (err.message || '未知错误'), 'error')
-      }
-      throw err
-    }
+  function getDefaultModelKeyOptions() {
+    return [{ value: '', label: '全部（账号可用）', title: '全部（账号可用）' }]
   }
 
-  async function fetchModelApiKeyTokens() {
-    const pageSize = 100
-    const maxPages = 20
-    const allItems = []
-    let page = 1
-    let total = 0
-
-    while (page <= maxPages) {
-      const pageData = await apiRequest('/api/token/', {
-        query: {
-          p: page,
-          page_size: pageSize
-        }
-      })
-
-      const items = Array.isArray(pageData?.items) ? pageData.items : []
-      total = toNonNegativeInt(pageData?.total, total)
-
-      if (!items.length) {
-        break
-      }
-
-      allItems.push(...items)
-
-      if (total > 0 && allItems.length >= total) {
-        break
-      }
-
-      if (items.length < pageSize) {
-        break
-      }
-
-      page += 1
-    }
-
-    return allItems
-  }
-
-  function renderModelApiKeyOptions() {
-    if (!dom.modelApiKeySelect) {
+  function renderModelKeyOptions() {
+    if (!dom.modelKeySelect) {
       return
     }
 
-    const options = [
-      {
-        value: '',
-        label: '不使用 API Key（公开访问）',
-        title: '不使用 API Key（公开访问）'
-      },
-      ...state.model.apiKeys.map((item) => ({
-        value: item.key,
-        label: item.label,
-        title: item.rawLabel || item.label
-      }))
-    ]
+    const options = state.model.apiKeys.length ? state.model.apiKeys : getDefaultModelKeyOptions()
+    const hasSelectedValue = options.some((item) => item.value === state.model.selectedApiKey)
 
-    setCustomSelectOptions(dom.modelApiKeySelect, options)
+    if (!hasSelectedValue) {
+      state.model.selectedApiKey = ''
+    }
 
-    const selectedExists = state.model.apiKeys.some((item) => item.key === state.model.selectedApiKey)
-    setCustomSelectValue(dom.modelApiKeySelect, selectedExists ? state.model.selectedApiKey : '', {
-      silent: true
-    })
-    syncSelectTitle(dom.modelApiKeySelect)
+    setCustomSelectOptions(dom.modelKeySelect, options)
+    setCustomSelectValue(dom.modelKeySelect, state.model.selectedApiKey, { silent: true })
+    syncSelectTitle(dom.modelKeySelect)
+  }
+
+  async function loadModelKeyOptions() {
+    if (!dom.modelKeySelect) {
+      return
+    }
+
+    if (state.model.apiKeysLoaded) {
+      renderModelKeyOptions()
+      return
+    }
+
+    try {
+      const tokens = await fetchAllTokenItems()
+      const enabledTokens = tokens.filter((token) => token && toNonNegativeInt(token.status, 0) === 1)
+      const options = getDefaultModelKeyOptions()
+      const seen = new Set(options.map((item) => item.value))
+
+      const results = await Promise.allSettled(
+        enabledTokens.map(async (token) => {
+          const tokenId = toNonNegativeInt(token.id, 0)
+          if (!tokenId) {
+            return null
+          }
+
+          const key = await fetchTokenFullKey(tokenId)
+          if (!key) {
+            return null
+          }
+
+          const name = String(token.name || '').trim()
+          const displayName = name || `Token #${tokenId}`
+          return {
+            value: String(tokenId),
+            key,
+            label: displayName,
+            title: displayName
+          }
+        })
+      )
+
+      results.forEach((result) => {
+        if (result.status !== 'fulfilled' || !result.value || seen.has(result.value.value)) {
+          return
+        }
+        seen.add(result.value.value)
+        options.push(result.value)
+      })
+
+      state.model.apiKeys = options
+      state.model.apiKeysLoaded = true
+      renderModelKeyOptions()
+    } catch (err) {
+      state.model.apiKeys = getDefaultModelKeyOptions()
+      state.model.apiKeysLoaded = false
+      renderModelKeyOptions()
+      showAlert('加载 Token 列表失败：' + (err.message || '未知错误'), 'error')
+    }
   }
 
   async function loadModels(showError, options = {}) {
@@ -1177,27 +1159,67 @@
     const silent = Boolean(options.silent) && state.model.items.length > 0
     state.model.isLoading = true
     if (!silent) {
-      renderModelTable({ loading: true })
+      renderModelList({ loading: true })
     }
 
     try {
-      const headers = {}
-      if (state.model.selectedApiKey) {
-        headers.Authorization = `Bearer ${state.model.selectedApiKey}`
+      const selectedApiKey = String(state.model.selectedApiKey || '').trim()
+      const selectedKeyOption = state.model.apiKeys.find((item) => item.value === selectedApiKey) || null
+      const bearerKey = String(selectedKeyOption?.key || '').trim()
+      let models = []
+
+      if (selectedApiKey) {
+        if (!bearerKey) {
+          throw new Error('所选 Token Key 已失效，请重新选择')
+        }
+
+        const data = await apiRequest('/v1/models', {
+          headers: {
+            Authorization: `Bearer ${bearerKey}`
+          }
+        })
+
+        const rawModels = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.data)
+            ? data.data
+            : []
+
+        models = rawModels
+          .map((item) => ({
+            id: String(item?.id || '').trim(),
+            object: String(item?.object || '').trim(),
+            owned_by: String(item?.owned_by || '').trim(),
+            supported_endpoint_types: Array.isArray(item?.supported_endpoint_types)
+              ? item.supported_endpoint_types.map((entry) => String(entry || '').trim()).filter(Boolean)
+              : []
+          }))
+          .filter((item) => item.id)
+      } else {
+        const data = await apiRequest('/api/user/models')
+        models = Array.isArray(data)
+          ? data
+              .map((item) => String(item || '').trim())
+              .filter(Boolean)
+              .map((item) => ({
+                id: item,
+                object: '',
+                owned_by: '',
+                supported_endpoint_types: []
+              }))
+          : []
       }
 
-      const { items } = await requestModelList(headers)
-
-      state.model.items = items
-      state.model.total = items.length
+      state.model.items = models
+      state.model.total = models.length
       dom.modelTotalBadge.textContent = String(state.model.total)
-      renderModelTable()
+      renderModelList()
     } catch (err) {
       if (!silent) {
         state.model.items = []
         state.model.total = 0
         dom.modelTotalBadge.textContent = '0'
-        renderModelTable()
+        renderModelList()
       }
 
       if (showError) {
@@ -1209,60 +1231,9 @@
     }
   }
 
-  async function requestModelList(headers) {
-    let v1Payload = null
-    let fallbackToModels = false
-
-    try {
-      v1Payload = await apiRequest('/v1/models', { headers, rawResponse: true })
-    } catch (err) {
-      const message = String(err?.message || '')
-      if (message.includes('响应解析失败')) {
-        fallbackToModels = true
-      } else {
-        throw err
-      }
-    }
-
-    if (!fallbackToModels) {
-      const v1Items = extractModelItemsFromPayload(v1Payload)
-      if (Array.isArray(v1Items)) {
-        return { items: v1Items, path: '/v1/models' }
-      }
-      fallbackToModels = true
-    }
-
-    const fallbackPayload = await apiRequest('/models', { headers, rawResponse: true })
-    const fallbackItems = extractModelItemsFromPayload(fallbackPayload)
-    if (Array.isArray(fallbackItems)) {
-      return { items: fallbackItems, path: '/models' }
-    }
-
-    throw new Error('/v1/models 解析失败，/models 解析也失败')
-  }
-
-  function extractModelItemsFromPayload(payload) {
-    if (Array.isArray(payload)) {
-      return payload
-    }
-
-    if (!payload || typeof payload !== 'object') {
-      return null
-    }
-
-    if (Array.isArray(payload.data)) {
-      return payload.data
-    }
-
-    if (payload.data && Array.isArray(payload.data.data)) {
-      return payload.data.data
-    }
-
-    return null
-  }
-
-  function renderModelTable(options = {}) {
-    if (!dom.modelTableBody) {
+  function renderModelList(options = {}) {
+    const container = dom.modelListContainer
+    if (!container) {
       return
     }
 
@@ -1271,34 +1242,151 @@
     }
 
     if (options.loading) {
-      dom.modelTableBody.innerHTML = '<tr><td colspan="4" class="text-center">模型加载中...</td></tr>'
+      container.innerHTML = '<div class="model-list-empty">模型加载中...</div>'
       return
     }
 
     if (!state.model.items.length) {
-      dom.modelTableBody.innerHTML = '<tr><td colspan="4" class="text-center">暂无模型数据</td></tr>'
+      container.innerHTML = '<div class="model-list-empty">暂无模型数据</div>'
       return
     }
 
-    dom.modelTableBody.innerHTML = state.model.items
-      .map((item, index) => {
-        const modelID = escapeHtml(String(item?.id || '-'))
-        const ownedBy = escapeHtml(String(item?.owned_by || '-'))
-        const endpointTypes = Array.isArray(item?.supported_endpoint_types)
-          ? item.supported_endpoint_types.map((v) => String(v || '').trim()).filter(Boolean)
-          : []
-        const endpointText = endpointTypes.length ? endpointTypes.join(', ') : '-'
-
-        return `
-          <tr>
-            <td><code class="mono text-sub">${index + 1}</code></td>
-            <td><code class="mono model-id">${modelID}</code></td>
-            <td>${ownedBy}</td>
-            <td>${escapeHtml(endpointText)}</td>
-          </tr>
-        `
+    container.innerHTML = state.model.items
+      .map((item) => {
+        const name = typeof item === 'string' ? item : String(item?.id || '').trim()
+        const ownedBy = typeof item === 'object' && item ? String(item.owned_by || '').trim() : ''
+        const ownerHtml = ownedBy ? `<span class="model-tag-owner">${escapeHtml(ownedBy)}</span>` : ''
+        return `<div class="model-tag"><code>${escapeHtml(name)}</code>${ownerHtml}</div>`
       })
       .join('')
+  }
+
+  async function fetchUserModels() {
+    try {
+      const data = await apiRequest('/api/user/models')
+      return Array.isArray(data)
+        ? data.map((m) => String(m || '').trim()).filter(Boolean)
+        : []
+    } catch {
+      return []
+    }
+  }
+
+  async function loadTokenGroupOptions() {
+    try {
+      const data = await apiRequest('/api/user/self/groups')
+      const options = [{ value: '', label: '留空（使用默认分组）', title: '留空（使用默认分组）' }]
+
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        Object.entries(data).forEach(([name, info]) => {
+          const desc = String(info?.desc || '').trim()
+          const ratio = info?.ratio
+          const ratioText = ratio !== undefined && ratio !== null ? String(ratio) : ''
+          let label = name
+          if (desc || ratioText) {
+            const parts = []
+            if (desc) parts.push(desc)
+            if (ratioText) parts.push(`倍率 ${ratioText}`)
+            label = `${name} — ${parts.join('，')}`
+          }
+          options.push({
+            value: name,
+            label: truncateMiddle(label, 50, 30, 16),
+            title: label
+          })
+        })
+      }
+
+      setCustomSelectOptions(dom.tokenGroupSelect, options)
+
+      const currentValue = getCustomSelectValue(dom.tokenGroupSelect)
+      setCustomSelectValue(dom.tokenGroupSelect, currentValue, { silent: true })
+    } catch {
+      const fallbackOptions = [{ value: '', label: '留空（使用默认分组）', title: '留空（使用默认分组）' }]
+      setCustomSelectOptions(dom.tokenGroupSelect, fallbackOptions)
+    }
+  }
+
+  function handleTokenModelSuggest() {
+    const dropdown = dom.tokenModelSuggestDropdown
+    if (!dropdown) {
+      return
+    }
+
+    if (!dropdown.classList.contains('hidden')) {
+      closeTokenModelSuggestDropdown()
+      return
+    }
+
+    dropdown.innerHTML = '<div class="model-suggest-loading">加载可用模型中...</div>'
+    dropdown.classList.remove('hidden')
+
+    fetchUserModels().then((models) => {
+      if (!models.length) {
+        dropdown.innerHTML = '<div class="model-suggest-loading">暂无可用模型</div>'
+        return
+      }
+
+      renderTokenModelSuggestDropdown(models)
+    })
+  }
+
+  function renderTokenModelSuggestDropdown(models) {
+    const dropdown = dom.tokenModelSuggestDropdown
+    if (!dropdown) {
+      return
+    }
+
+    const currentModels = parseModelLimitsText(dom.tokenModelLimitsInput.value)
+    const currentSet = new Set(currentModels)
+
+    dropdown.innerHTML = models
+      .map((name) => {
+        const isSelected = currentSet.has(name)
+        return `<button type="button" class="model-suggest-item${isSelected ? ' selected' : ''}" data-model="${escapeHtml(name)}">${escapeHtml(name)}</button>`
+      })
+      .join('')
+
+    dropdown.addEventListener('click', handleModelSuggestItemClick)
+  }
+
+  function handleModelSuggestItemClick(event) {
+    const item = event.target.closest('.model-suggest-item')
+    if (!item) {
+      return
+    }
+
+    const modelName = item.dataset.model
+    if (!modelName) {
+      return
+    }
+
+    const currentModels = parseModelLimitsText(dom.tokenModelLimitsInput.value)
+    const index = currentModels.indexOf(modelName)
+
+    if (index >= 0) {
+      currentModels.splice(index, 1)
+      item.classList.remove('selected')
+    } else {
+      currentModels.push(modelName)
+      item.classList.add('selected')
+    }
+
+    dom.tokenModelLimitsInput.value = currentModels.join(',')
+  }
+
+  function parseModelLimitsText(text) {
+    return String(text || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
+
+  function closeTokenModelSuggestDropdown() {
+    if (dom.tokenModelSuggestDropdown) {
+      dom.tokenModelSuggestDropdown.classList.add('hidden')
+      dom.tokenModelSuggestDropdown.innerHTML = ''
+    }
   }
 
   function handleLogFilter(event) {
@@ -1374,7 +1462,7 @@
     }
 
     try {
-      const tokens = await fetchModelApiKeyTokens()
+      const tokens = await fetchAllTokenItems()
       const byName = new Map()
 
       tokens.forEach((token) => {
@@ -1400,6 +1488,44 @@
       }
       throw err
     }
+  }
+
+  async function fetchAllTokenItems() {
+    const pageSize = 100
+    const maxPages = 20
+    const allItems = []
+    let page = 1
+    let total = 0
+
+    while (page <= maxPages) {
+      const pageData = await apiRequest('/api/token/', {
+        query: {
+          p: page,
+          page_size: pageSize
+        }
+      })
+
+      const items = Array.isArray(pageData?.items) ? pageData.items : []
+      total = toNonNegativeInt(pageData?.total, total)
+
+      if (!items.length) {
+        break
+      }
+
+      allItems.push(...items)
+
+      if (total > 0 && allItems.length >= total) {
+        break
+      }
+
+      if (items.length < pageSize) {
+        break
+      }
+
+      page += 1
+    }
+
+    return allItems
   }
 
   function renderTokenPageSizeOptions() {
@@ -1488,47 +1614,15 @@
 
   async function refreshLogModelSuggestions(showError) {
     try {
-      const selectedTokenName = getCustomSelectValue(dom.logTokenNameInput).trim()
-
-      if (!selectedTokenName) {
-        const data = await apiRequest('/api/internal/log/model-suggestions', { local: true })
-        const modelIds = Array.isArray(data?.model_ids)
-          ? data.model_ids.map((item) => String(item || '').trim()).filter(Boolean)
-          : []
-
-        state.log.modelSuggestions = modelIds
-        renderLogModelSuggestions()
-        return
-      }
-
-      const selectedTokenKey = state.log.tokenKeyByName[selectedTokenName] || ''
-      const headers = {}
-
-      if (selectedTokenKey) {
-        headers.Authorization = `Bearer ${selectedTokenKey}`
-      }
-
-      const { items } = await requestModelList(headers)
-      const modelIds = []
-      const seen = new Set()
-
-      items.forEach((item) => {
-        const modelId = String(item?.id || '').trim()
-        if (!modelId || seen.has(modelId)) {
-          return
-        }
-        seen.add(modelId)
-        modelIds.push(modelId)
-      })
-
-      state.log.modelSuggestions = modelIds
+      const models = await fetchUserModels()
+      state.log.modelSuggestions = models
       renderLogModelSuggestions()
     } catch (err) {
       state.log.modelSuggestions = []
       renderLogModelSuggestions()
 
       if (showError) {
-        showAlert('加载日志模型下拉失败：' + (err.message || '未知错误'), 'warning', 0)
+        showAlert('加载日志模型下拉失败：' + (err.message || '未知错误'), 'warning')
       }
     }
   }
@@ -1567,7 +1661,7 @@
       state.log.groupOptions = groups
       state.log.groupHint = groups.length
         ? ''
-        : '当前 BaseURL 暂未返回可选分组，已保留“全部分组”筛选。'
+        : '当前 BaseURL 暂未返回可选分组，已保留"全部分组"筛选。'
       renderLogGroupOptions(currentValue)
     } catch (err) {
       state.log.groupOptions = []
@@ -1575,39 +1669,14 @@
       renderLogGroupOptions(currentValue)
 
       if (showError) {
-        showAlert('加载日志分组下拉失败：' + (err.message || '未知错误'), 'warning', 0)
+        showAlert('加载日志分组下拉失败：' + (err.message || '未知错误'), 'warning')
       }
     }
   }
 
   async function fetchLogGroupOptionsFromBaseURL() {
-    const candidates = ['/api/user/self/groups', '/api/user/groups', '/api/group/']
-    let hasSuccessResponse = false
-    let lastError = null
-
-    for (const path of candidates) {
-      try {
-        const data = await apiRequest(path)
-        hasSuccessResponse = true
-
-        const groups = extractGroupNamesFromPayload(data)
-        if (groups.length) {
-          return groups
-        }
-      } catch (err) {
-        lastError = err
-      }
-    }
-
-    if (hasSuccessResponse) {
-      return []
-    }
-
-    if (lastError) {
-      throw lastError
-    }
-
-    return []
+    const data = await apiRequest('/api/user/self/groups')
+    return extractGroupNamesFromPayload(data)
   }
 
   function extractGroupNamesFromPayload(payload) {
@@ -2500,11 +2569,6 @@
     }
 
     renderTokenTable()
-  }
-
-  function formatModelApiKeyLabel(tokenName) {
-    const safeName = truncateMiddle(String(tokenName || ''), 26, 14, 8)
-    return `${safeName}（Key 已隐藏）`
   }
 
   function syncSelectTitle(selectElement) {

@@ -183,31 +183,17 @@
                 <h3>可用模型</h3>
                 <span class="badge-count" id="modelTotalBadge">-</span>
               </div>
-              <span class="button-loading-wrap">
-                <button id="refreshModelBtn" class="btn-secondary btn-sm" type="button">刷新</button>
-                <span class="button-loading-spinner" aria-hidden="true"></span>
-              </span>
+              <div class="panel-actions">
+                <div id="modelKeySelect" class="custom-select custom-select-sm" aria-label="Token Key 下拉"></div>
+                <span class="button-loading-wrap">
+                  <button id="refreshModelBtn" class="btn-secondary btn-sm" type="button">刷新</button>
+                  <span class="button-loading-spinner" aria-hidden="true"></span>
+                </span>
+              </div>
             </div>
 
-            <form id="modelFilterForm" class="filter-bar">
-              <div id="modelApiKeySelect" class="custom-select custom-select-sm" aria-label="模型 API Key 下拉"></div>
-              <button class="btn-primary btn-sm" type="submit">拉取模型列表</button>
-            </form>
-
-            <div class="table-responsive">
-              <table class="modern-table">
-                <thead>
-                  <tr>
-                    <th width="60">序号</th>
-                    <th>模型 ID</th>
-                    <th width="180">所属方</th>
-                    <th>支持端点</th>
-                  </tr>
-                </thead>
-                <tbody id="modelTableBody">
-                  <!-- JS 填充 -->
-                </tbody>
-              </table>
+            <div id="modelListContainer" class="model-list-container">
+              <!-- JS 填充 -->
             </div>
           </section>
 
@@ -335,7 +321,11 @@
                   <span>启用模型限制</span>
                 </label>
               </div>
-              <textarea id="tokenModelLimitsInput" class="input-std" rows="2" placeholder="模型名称用逗号分隔，如 gpt-4,claude-3"></textarea>
+              <div class="model-limits-input-row">
+                <textarea id="tokenModelLimitsInput" class="input-std" rows="2" placeholder="模型名称用逗号分隔，如 gpt-4,claude-3"></textarea>
+                <button id="tokenModelSuggestBtn" class="btn-ghost btn-sm" type="button" title="从远端拉取可用模型列表">选择模型</button>
+              </div>
+              <div id="tokenModelSuggestDropdown" class="model-suggest-dropdown hidden"></div>
             </div>
 
             <div class="form-group span-2">
@@ -345,7 +335,7 @@
 
             <div class="form-group">
               <label>用户分组</label>
-              <input id="tokenGroupInput" class="input-std" type="text" placeholder="default" />
+              <div id="tokenGroupSelect" class="custom-select custom-select-sm" aria-label="用户分组下拉"></div>
             </div>
 
             <div class="form-group flex-center">
