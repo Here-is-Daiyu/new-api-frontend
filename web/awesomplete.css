@@ -1,0 +1,32 @@
+/* awesomplete v1.1.7 — 仅保留功能性布局，视觉样式由 style.css 统一管理 */
+.awesomplete [hidden] {
+    display: none;
+}
+
+.awesomplete .visually-hidden {
+    position: absolute;
+    clip: rect(0, 0, 0, 0);
+}
+
+.awesomplete {
+    display: inline-block;
+    position: relative;
+}
+
+.awesomplete > input {
+    display: block;
+}
+
+.awesomplete > ul {
+    position: absolute;
+    left: 0;
+    min-width: 100%;
+    box-sizing: border-box;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.awesomplete > ul:empty {
+    display: none;
+}
