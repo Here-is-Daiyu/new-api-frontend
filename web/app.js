@@ -58,10 +58,15 @@
 
   const customSelectInstances = new Map()
   let customSelectGlobalEventsBound = false
+  let logModelAwesomplete = null
 
-  const LOG_PREFETCH_REMAINING_ROWS = 20
-  const LOG_PAGE_SIZE = 50
+  const LOG_PREFETCH_REMAINING_ROWS = 100
+  const LOG_PAGE_SIZE = 200
   const QUOTA_DISPLAY_DIVISOR = 500000
+  const LOG_AUTO_REFRESH_INTERVAL = 2000
+  const LOG_MODEL_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6']
+
+  let logAutoRefreshTimer = null
 
   const ROLE_TEXT = {
     0: '访客',
@@ -84,7 +89,8 @@
       total: 0,
       keyword: '',
       items: [],
-      visibleKeyIds: new Set()
+      visibleKeyIds: new Set(),
+      fullKeyCache: new Map()
     },
     model: {
       items: [],
@@ -93,7 +99,8 @@
       loaded: false,
       selectedApiKey: '',
       apiKeys: [],
-      apiKeysLoaded: false
+      apiKeysLoaded: false,
+      apiKeysPromise: null
     },
     log: {
       page: 1,
@@ -117,7 +124,8 @@
       stat: {
         quota: 0,
         rpm: 0,
-        tpm: 0
+        tpm: 0,
+        modelBreakdown: []
       },
       loaded: false,
       initPromise: null,
@@ -125,7 +133,8 @@
       tokenKeyByName: {},
       modelSuggestions: [],
       groupOptions: [],
-      groupHint: ''
+      groupHint: '',
+      autoRefreshEnabled: false
     }
   }
 
@@ -148,6 +157,7 @@
     renderModelList()
     renderLogTypeOptions()
     renderLogTokenOptions()
+    initLogModelAutocomplete()
     renderLogModelSuggestions()
     renderLogGroupOptions()
     await loadServerConfig()
@@ -205,7 +215,7 @@
     dom.logFilterForm = document.getElementById('logFilterForm')
     dom.logTypeSelect = document.getElementById('logTypeSelect')
     dom.logTokenNameInput = document.getElementById('logTokenNameInput')
-    dom.logModelSelect = document.getElementById('logModelSelect')
+    dom.logModelInput = document.getElementById('logModelInput')
     dom.logRequestIdInput = document.getElementById('logRequestIdInput')
     dom.logStartInput = document.getElementById('logStartInput')
     dom.logEndInput = document.getElementById('logEndInput')
@@ -218,6 +228,8 @@
     dom.statQuota = document.getElementById('statQuota')
     dom.statRpm = document.getElementById('statRpm')
     dom.statTpm = document.getElementById('statTpm')
+    dom.modelCostBar = document.getElementById('modelCostBar')
+    dom.modelCostTooltip = document.getElementById('modelCostTooltip')
 
     dom.tokenModal = document.getElementById('tokenModal')
     dom.tokenModalTitle = document.getElementById('tokenModalTitle')
@@ -242,7 +254,6 @@
     initCustomSelect(dom.tokenStatusSelect)
     initCustomSelect(dom.logTypeSelect)
     initCustomSelect(dom.logTokenNameInput)
-    initCustomSelect(dom.logModelSelect)
     initCustomSelect(dom.logGroupSelect)
     initCustomSelect(dom.tokenGroupSelect)
     initCustomSelect(dom.modelKeySelect)
@@ -306,9 +317,6 @@
     dom.logFilterResetBtn.addEventListener('click', handleLogFilterReset)
     setCustomSelectOnChange(dom.logTokenNameInput, () => {
       handleLogTokenChange()
-    })
-    setCustomSelectOnChange(dom.logModelSelect, () => {
-      syncSelectTitle(dom.logModelSelect)
     })
     setCustomSelectOnChange(dom.logGroupSelect, () => {
       syncSelectTitle(dom.logGroupSelect)
@@ -434,11 +442,38 @@
 
     try {
       await fetchSelf(true)
-      showLoggedInState()
-      await Promise.allSettled([loadTokens()])
-      void prefetchLogPanel().catch(() => {})
     } catch {
       showLoggedOutState()
+      return
+    }
+
+    showLoggedInState()
+    void preloadAllPanels()
+  }
+
+  async function preloadAllPanels() {
+    if (!state.user) {
+      return
+    }
+
+    try {
+      // 令牌管理页优先（首屏展示）
+      await loadTokens()
+    } catch {
+      // ignore
+    }
+
+    try {
+      // 其余面板并行加载
+      await Promise.allSettled([
+        (async () => {
+          await loadModelKeyOptions(false)
+          await refreshModels(false, { silent: true })
+        })(),
+        ensureLogPanelInitialized(false)
+      ])
+    } catch {
+      // ignore
     }
   }
 
@@ -454,6 +489,7 @@
     closeTokenModal()
 
     state.token.visibleKeyIds.clear()
+    state.token.fullKeyCache.clear()
 
     state.model.items = []
     state.model.total = 0
@@ -462,6 +498,7 @@
     state.model.selectedApiKey = ''
     state.model.apiKeys = []
     state.model.apiKeysLoaded = false
+    state.model.apiKeysPromise = null
 
     state.log.requestVersion += 1
     state.log.loaded = false
@@ -483,7 +520,7 @@
 
     setCustomSelectValue(dom.logTypeSelect, '0', { silent: true })
     setCustomSelectValue(dom.logTokenNameInput, '', { silent: true })
-    setCustomSelectValue(dom.logModelSelect, '', { silent: true })
+    if (dom.logModelInput) dom.logModelInput.value = ''
     dom.logRequestIdInput.value = ''
     dom.logStartInput.value = ''
     dom.logEndInput.value = ''
@@ -554,8 +591,7 @@
       await fetchSelf(false)
       dom.passwordInput.value = ''
       showLoggedInState()
-      await Promise.allSettled([loadTokens()])
-      void prefetchLogPanel().catch(() => {})
+      void preloadAllPanels()
       showAlert('登录成功', 'success')
     } catch (err) {
       showAlert('登录失败：' + (err.message || '未知错误'), 'error')
@@ -592,6 +628,7 @@
       await apiRequest('/api/user/logout')
       state.user = null
       clearApiUserId()
+      stopLogAutoRefresh()
       showLoggedOutState()
       showAlert('已退出登录', 'info')
     } catch (err) {
@@ -624,7 +661,8 @@
 
   function switchTab(panelId) {
     dom.tabButtons.forEach((btn) => {
-      btn.classList.toggle('active', btn.dataset.tab === panelId)
+      const isActive = btn.dataset.panel === panelId
+      btn.classList.toggle('active', isActive)
     })
 
     dom.tabPanels.forEach((panel) => {
@@ -637,7 +675,7 @@
       void (async () => {
         const shouldReloadModelKeys = !state.model.apiKeysLoaded
         if (shouldReloadModelKeys) {
-          await loadModelKeyOptions()
+          await loadModelKeyOptions(true)
         }
         if (!state.model.loaded || shouldReloadModelKeys) {
           await refreshModels(true)
@@ -645,8 +683,14 @@
       })().catch(() => {})
     }
 
-    if (panelId === 'logPanel' && state.user && !state.log.loaded) {
-      void ensureLogPanelInitialized(true).catch(() => {})
+    if (panelId === 'logPanel' && state.user) {
+      if (!state.log.loaded) {
+        void ensureLogPanelInitialized(true).catch(() => {})
+      } else {
+        startLogAutoRefresh()
+      }
+    } else {
+      stopLogAutoRefresh()
     }
   }
 
@@ -714,6 +758,8 @@
 
       renderTokenTable()
       updateTokenPager()
+      // 后台静默预加载所有 token 完整 key
+      preloadTokenFullKeys()
     } catch (err) {
       if (!silent) {
         state.token.total = 0
@@ -732,6 +778,22 @@
     }
   }
 
+  async function preloadTokenFullKeys() {
+    const tokens = state.token.items
+    if (!tokens.length) return
+
+    for (const token of tokens) {
+      const id = toNonNegativeInt(token.id, 0)
+      if (!id || state.token.fullKeyCache.has(id)) continue
+      try {
+        const key = await fetchTokenFullKey(id)
+        if (key) state.token.fullKeyCache.set(id, key)
+      } catch {
+        // 静默忽略，429 会在 apiRequest 层自动重试
+      }
+    }
+  }
+
   function renderTokenTable() {
     if (!state.token.items.length) {
       dom.tokenTableBody.innerHTML = '<tr class="table-placeholder-row"><td colspan="7" class="text-center">暂无数据</td></tr>'
@@ -743,7 +805,7 @@
         const id = toNonNegativeInt(token.id, 0)
         const fullKey = normalizeTokenKey(token.key)
         const isKeyVisible = state.token.visibleKeyIds.has(id)
-        const keyContent = formatTokenKeyDisplay(fullKey, isKeyVisible)
+        const keyContent = formatTokenKeyDisplay(fullKey, isKeyVisible, id)
         const nameText = escapeHtml(String(token.name || '-'))
         const toggleKeyTitle = isKeyVisible ? '隐藏完整 Key' : '查看完整 Key'
         const toggleKeyIcon = getTokenKeyToggleIcon(isKeyVisible)
@@ -1093,7 +1155,7 @@
     syncSelectTitle(dom.modelKeySelect)
   }
 
-  async function loadModelKeyOptions() {
+  async function loadModelKeyOptions(showError = true) {
     if (!dom.modelKeySelect) {
       return
     }
@@ -1103,51 +1165,66 @@
       return
     }
 
-    try {
-      const tokens = await fetchAllTokenItems()
-      const enabledTokens = tokens.filter((token) => token && toNonNegativeInt(token.status, 0) === 1)
-      const options = getDefaultModelKeyOptions()
-      const seen = new Set(options.map((item) => item.value))
+    if (!state.model.apiKeysPromise) {
+      state.model.apiKeysPromise = (async () => {
+        try {
+          const tokens = await fetchAllTokenItems()
+          const enabledTokens = tokens.filter((token) => token && toNonNegativeInt(token.status, 0) === 1)
+          const options = getDefaultModelKeyOptions()
+          const seen = new Set(options.map((item) => item.value))
 
-      const results = await Promise.allSettled(
-        enabledTokens.map(async (token) => {
-          const tokenId = toNonNegativeInt(token.id, 0)
-          if (!tokenId) {
-            return null
-          }
+          const results = await Promise.allSettled(
+            enabledTokens.map(async (token) => {
+              const tokenId = toNonNegativeInt(token.id, 0)
+              if (!tokenId) {
+                return null
+              }
 
-          const key = await fetchTokenFullKey(tokenId)
-          if (!key) {
-            return null
-          }
+              const key = await fetchTokenFullKey(tokenId)
+              if (!key) {
+                return null
+              }
 
-          const name = String(token.name || '').trim()
-          const displayName = name || `Token #${tokenId}`
-          return {
-            value: String(tokenId),
-            key,
-            label: displayName,
-            title: displayName
-          }
-        })
-      )
+              const name = String(token.name || '').trim()
+              const displayName = name || `Token #${tokenId}`
+              return {
+                value: String(tokenId),
+                key,
+                label: displayName,
+                title: displayName
+              }
+            })
+          )
 
-      results.forEach((result) => {
-        if (result.status !== 'fulfilled' || !result.value || seen.has(result.value.value)) {
-          return
+          results.forEach((result) => {
+            if (result.status !== 'fulfilled' || !result.value || seen.has(result.value.value)) {
+              return
+            }
+            seen.add(result.value.value)
+            options.push(result.value)
+          })
+
+          state.model.apiKeys = options
+          state.model.apiKeysLoaded = true
+          renderModelKeyOptions()
+        } catch (err) {
+          state.model.apiKeys = getDefaultModelKeyOptions()
+          state.model.apiKeysLoaded = false
+          renderModelKeyOptions()
+          throw err
+        } finally {
+          state.model.apiKeysPromise = null
         }
-        seen.add(result.value.value)
-        options.push(result.value)
-      })
+      })()
+    }
 
-      state.model.apiKeys = options
-      state.model.apiKeysLoaded = true
-      renderModelKeyOptions()
+    try {
+      return await state.model.apiKeysPromise
     } catch (err) {
-      state.model.apiKeys = getDefaultModelKeyOptions()
-      state.model.apiKeysLoaded = false
-      renderModelKeyOptions()
-      showAlert('加载 Token 列表失败：' + (err.message || '未知错误'), 'error')
+      if (showError) {
+        showAlert('加载 Token 列表失败：' + (err.message || '未知错误'), 'error')
+      }
+      throw err
     }
   }
 
@@ -1391,13 +1468,14 @@
 
   function handleLogFilter(event) {
     event.preventDefault()
-    void loadLogs(true, { resetScroll: true })
+    collectLogFiltersFromForm()
+    void loadLogs(true, { resetScroll: true, filtersCollected: true })
   }
 
   function handleLogFilterReset() {
     setCustomSelectValue(dom.logTypeSelect, '0', { silent: true })
     setCustomSelectValue(dom.logTokenNameInput, '', { silent: true })
-    setCustomSelectValue(dom.logModelSelect, '', { silent: true })
+    if (dom.logModelInput) dom.logModelInput.value = ''
     dom.logRequestIdInput.value = ''
     dom.logStartInput.value = ''
     dom.logEndInput.value = ''
@@ -1411,13 +1489,6 @@
   function handleLogTokenChange() {
     syncSelectTitle(dom.logTokenNameInput)
     void refreshLogModelSuggestions(false).catch(() => {})
-  }
-
-  function prefetchLogPanel() {
-    if (!state.user) {
-      return Promise.resolve()
-    }
-    return ensureLogPanelInitialized(false)
   }
 
   function ensureLogPanelInitialized(showError) {
@@ -1453,6 +1524,7 @@
 
     await Promise.allSettled([refreshLogModelSuggestions(false), refreshLogGroupOptions(false)])
     await loadLogs(showError, { resetScroll: true })
+    startLogAutoRefresh()
   }
 
   async function ensureLogTokenOptions(showError) {
@@ -1622,35 +1694,50 @@
       renderLogModelSuggestions()
 
       if (showError) {
-        showAlert('加载日志模型下拉失败：' + (err.message || '未知错误'), 'warning')
+        showAlert('加载日志模型建议失败：' + (err.message || '未知错误'), 'warning')
       }
     }
   }
 
-  function renderLogModelSuggestions() {
-    if (!dom.logModelSelect) {
+  function initLogModelAutocomplete() {
+    if (!dom.logModelInput || typeof Awesomplete === 'undefined') {
       return
     }
 
-    const currentValue = getCustomSelectValue(dom.logModelSelect).trim()
-    const options = [
-      {
-        value: '',
-        label: '全部模型',
-        title: '全部模型'
-      },
-      ...state.log.modelSuggestions.map((modelId) => ({
-        value: modelId,
-        label: truncateMiddle(modelId, 44, 24, 16),
-        title: modelId
-      }))
-    ]
+    logModelAwesomplete = new Awesomplete(dom.logModelInput, {
+      minChars: 0,
+      maxItems: 20,
+      autoFirst: false,
+      tabSelect: true,
+      filter: Awesomplete.FILTER_CONTAINS,
+      sort: false,
+      list: state.log.modelSuggestions || []
+    })
 
-    setCustomSelectOptions(dom.logModelSelect, options)
+    dom.logModelInput.addEventListener('focus', () => {
+      if (logModelAwesomplete && state.log.modelSuggestions.length) {
+        logModelAwesomplete.evaluate()
+      }
+    })
 
-    const exists = state.log.modelSuggestions.some((item) => item === currentValue)
-    setCustomSelectValue(dom.logModelSelect, exists ? currentValue : '', { silent: true })
-    syncSelectTitle(dom.logModelSelect)
+    // capture phase：在 Awesomplete 的 blur→close() 之前拿到高亮项
+    dom.logModelInput.addEventListener('blur', () => {
+      if (!logModelAwesomplete) return
+      const selected = logModelAwesomplete.ul.querySelector('li[aria-selected="true"]')
+      if (selected) {
+        const val = selected.textContent.trim()
+        // close() 会在 bubble phase 清理状态，用 microtask 在之后写值
+        queueMicrotask(() => { dom.logModelInput.value = val })
+      }
+    }, true)
+  }
+
+  function renderLogModelSuggestions() {
+    if (!logModelAwesomplete) {
+      return
+    }
+
+    logModelAwesomplete.list = state.log.modelSuggestions || []
   }
 
   async function refreshLogGroupOptions(showError) {
@@ -1770,7 +1857,7 @@
   function collectLogFiltersFromForm() {
     state.log.pageSize = LOG_PAGE_SIZE
     state.log.filters.type = getCustomSelectValue(dom.logTypeSelect)
-    state.log.filters.modelName = getCustomSelectValue(dom.logModelSelect).trim()
+    state.log.filters.modelName = dom.logModelInput ? dom.logModelInput.value.trim() : ''
     state.log.filters.tokenName = getCustomSelectValue(dom.logTokenNameInput).trim()
     state.log.filters.requestId = dom.logRequestIdInput.value.trim()
     state.log.filters.startTime = dom.logStartInput.value.trim()
@@ -1815,36 +1902,39 @@
   }
 
   async function loadLogs(showError, options = {}) {
-    collectLogFiltersFromForm()
-
-    const silent = Boolean(options.silent) && state.log.items.length > 0
-    const requestVersion = state.log.requestVersion + 1
-
-    if (options.resetScroll && !silent) {
-      resetLogScrollPosition()
+    if (!options.filtersCollected) {
+      collectLogFiltersFromForm()
     }
+
+    const hasExistingData = state.log.items.length > 0
+    const requestVersion = state.log.requestVersion + 1
 
     state.log.requestVersion = requestVersion
     state.log.page = 1
     state.log.hasMore = true
     state.log.isLoading = false
-    state.log.isRefreshing = silent
+    state.log.isRefreshing = hasExistingData
     state.log.lastError = ''
     updateLogLoadState()
 
-    if (!silent) {
+    if (!hasExistingData) {
+      if (options.resetScroll) {
+        resetLogScrollPosition()
+      }
       state.log.total = 0
       state.log.items = []
       renderLogTable()
-
-      await Promise.all([loadLogStat(), loadMoreLogs(showError, requestVersion)])
+      await Promise.all([loadLogStat({ requestVersion }), loadMoreLogs(showError, requestVersion)])
       return
     }
 
     let shouldAutoLoadNextPage = false
 
     try {
-      const [pageData] = await Promise.all([requestLogPage(1), loadLogStat({ preserveOnError: true })])
+      const [pageData] = await Promise.all([
+        requestLogPage(1),
+        loadLogStat({ preserveOnError: true, requestVersion })
+      ])
 
       if (requestVersion !== state.log.requestVersion) {
         return
@@ -1858,6 +1948,9 @@
       state.log.hasMore = pageItems.length > 0 && state.log.items.length < state.log.total
       state.log.page = state.log.hasMore ? 2 : 1
 
+      if (options.resetScroll) {
+        resetLogScrollPosition()
+      }
       renderLogTable()
 
       shouldAutoLoadNextPage =
@@ -1888,6 +1981,32 @@
           void loadMoreLogs(false, requestVersion)
         }, 0)
       }
+    }
+  }
+
+  function startLogAutoRefresh() {
+    stopLogAutoRefresh()
+    if (!state.user) {
+      return
+    }
+
+    state.log.autoRefreshEnabled = true
+    logAutoRefreshTimer = window.setInterval(() => {
+      if (!isLogPanelVisible() || state.log.isLoading || state.log.isRefreshing || !state.log.hasMore) {
+        if (!state.log.hasMore) {
+          stopLogAutoRefresh()
+        }
+        return
+      }
+      void loadMoreLogs(false)
+    }, LOG_AUTO_REFRESH_INTERVAL)
+  }
+
+  function stopLogAutoRefresh() {
+    state.log.autoRefreshEnabled = false
+    if (logAutoRefreshTimer) {
+      window.clearInterval(logAutoRefreshTimer)
+      logAutoRefreshTimer = null
     }
   }
 
@@ -1974,6 +2093,7 @@
 
   async function loadLogStat(options = {}) {
     const preserveOnError = Boolean(options.preserveOnError)
+    const requestVersion = options.requestVersion ?? state.log.requestVersion
 
     try {
       const query = buildLogQuery(false)
@@ -1991,12 +2111,147 @@
     }
 
     renderLogStat()
+    await loadModelCostBreakdown(requestVersion)
+  }
+
+  function buildModelCostBreakdownQuery(filters = state.log.filters) {
+    const now = Math.floor(Date.now() / 1000)
+    let startTimestamp = datetimeLocalToUnix(filters?.startTime)
+    let endTimestamp = datetimeLocalToUnix(filters?.endTime)
+
+    if (!startTimestamp && !endTimestamp) {
+      endTimestamp = now
+      startTimestamp = now - 86400
+    } else {
+      if (!endTimestamp) {
+        endTimestamp = now
+      }
+      if (!startTimestamp) {
+        startTimestamp = Math.max(0, endTimestamp - 86400)
+      }
+    }
+
+    if (startTimestamp > endTimestamp) {
+      const nextStart = endTimestamp
+      endTimestamp = startTimestamp
+      startTimestamp = nextStart
+    }
+
+    return {
+      start_timestamp: startTimestamp,
+      end_timestamp: endTimestamp,
+      default_time: 'day'
+    }
+  }
+
+  async function loadModelCostBreakdown(requestVersion = state.log.requestVersion) {
+    const query = buildModelCostBreakdownQuery({ ...state.log.filters })
+
+    try {
+      const data = await apiRequest('/api/data/self', { query })
+      if (requestVersion !== state.log.requestVersion) {
+        return state.log.stat.modelBreakdown
+      }
+
+      const items = Array.isArray(data) ? data : []
+      const quotaByModel = new Map()
+
+      items.forEach((item) => {
+        const model = String(item?.model_name || '').trim() || '未知模型'
+        const quota = toFiniteNumber(item?.quota)
+        if (quota === null || quota <= 0) {
+          return
+        }
+        quotaByModel.set(model, (quotaByModel.get(model) || 0) + quota)
+      })
+
+      const entries = Array.from(quotaByModel.entries()).sort((a, b) => b[1] - a[1])
+      const totalQuota = entries.reduce((sum, [, quota]) => sum + quota, 0)
+      const breakdown = totalQuota > 0
+        ? entries.map(([model, quota]) => ({
+          model,
+          quota,
+          percentage: (quota / totalQuota) * 100
+        }))
+        : []
+
+      state.log.stat.modelBreakdown = breakdown
+      renderModelCostBar(breakdown)
+      return breakdown
+    } catch (err) {
+      if (requestVersion !== state.log.requestVersion) {
+        return state.log.stat.modelBreakdown
+      }
+
+      console.warn('模型消耗比例加载失败', err)
+      state.log.stat.modelBreakdown = []
+      renderModelCostBar([])
+      return []
+    }
   }
 
   function renderLogStat() {
     dom.statQuota.textContent = formatQuotaDisplayValue(state.log.stat.quota)
     dom.statRpm.textContent = String(state.log.stat.rpm)
     dom.statTpm.textContent = String(state.log.stat.tpm)
+  }
+
+  function renderModelCostBar(breakdown) {
+    if (!dom.modelCostBar) {
+      return
+    }
+
+    hideCostBarTooltip()
+
+    const safeBreakdown = Array.isArray(breakdown) ? breakdown : []
+    const totalQuota = safeBreakdown.reduce((sum, item) => sum + (toFiniteNumber(item?.quota) || 0), 0)
+
+    if (!totalQuota || !safeBreakdown.length) {
+      dom.modelCostBar.innerHTML = '<div class="cost-bar-empty">暂无数据</div>'
+      return
+    }
+
+    const segments = safeBreakdown.map((item, idx) => {
+      const percentageValue = toFiniteNumber(item?.percentage) || ((item.quota / totalQuota) * 100)
+      const percentage = percentageValue.toFixed(1)
+      const color = LOG_MODEL_COLORS[idx % LOG_MODEL_COLORS.length]
+      return `<div class="cost-segment" style="width: ${percentage}%; background-color: ${color};" title="${escapeHtml(item.model)}: ${percentage}%" data-model="${escapeHtml(item.model)}" data-quota="${item.quota}" data-percentage="${percentage}"></div>`
+    })
+
+    dom.modelCostBar.innerHTML = `<div class="cost-bar-container">${segments.join('')}</div>`
+
+    const segments_el = dom.modelCostBar.querySelectorAll('.cost-segment')
+    segments_el.forEach((seg) => {
+      seg.addEventListener('mouseenter', (e) => {
+        showCostBarTooltip(e.currentTarget || e.target)
+      })
+      seg.addEventListener('mouseleave', () => {
+        hideCostBarTooltip()
+      })
+    })
+  }
+
+  function showCostBarTooltip(element) {
+    if (!dom.modelCostTooltip) {
+      return
+    }
+
+    const model = element.dataset.model || '-'
+    const percentage = element.dataset.percentage || '0'
+    const quota = toNonNegativeInt(element.dataset.quota, 0)
+
+    dom.modelCostTooltip.innerHTML = `<strong>${escapeHtml(model)}</strong><br/>占比: ${percentage}%<br/>消耗: ${formatQuotaDisplayValue(quota)}`
+    dom.modelCostTooltip.classList.remove('hidden')
+
+    const rect = element.getBoundingClientRect()
+    dom.modelCostTooltip.style.left = (rect.left + rect.width / 2) + 'px'
+    dom.modelCostTooltip.style.top = (rect.top - 45) + 'px'
+  }
+
+  function hideCostBarTooltip() {
+    if (dom.modelCostTooltip) {
+      dom.modelCostTooltip.classList.add('hidden')
+    }
   }
 
   function formatQuotaDisplayValue(value) {
@@ -2241,6 +2496,7 @@
     const body = options.body
     const rawResponse = Boolean(options.rawResponse)
     const localRequest = Boolean(options.local)
+    const maxRetries = 4
 
     const baseURL = getActiveBaseURL()
     const url = localRequest ? buildLocalURL(path, query) : buildProxyURL(path, query)
@@ -2265,25 +2521,37 @@
       requestInit.body = JSON.stringify(body)
     }
 
-    const res = await fetch(url, requestInit)
-    const payload = await safeParseJSON(res)
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const res = await fetch(url, requestInit)
 
-    if (!res.ok) {
-      throw new Error(payload?.message || `HTTP ${res.status}`)
-    }
-
-    if (payload === null) {
-      if (rawResponse) {
-        throw new Error('响应解析失败')
+      // 429 指数退避重试
+      if (res.status === 429 && attempt < maxRetries) {
+        const retryAfter = parseInt(res.headers.get('Retry-After'), 10)
+        const baseDelay = (retryAfter > 0 ? retryAfter : 1) * 1000
+        const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 500
+        await new Promise((r) => setTimeout(r, delay))
+        continue
       }
-      return null
-    }
 
-    if (payload && payload.success === false) {
-      throw new Error(payload.message || '请求失败')
-    }
+      const payload = await safeParseJSON(res)
 
-    return rawResponse ? payload : payload?.data
+      if (!res.ok) {
+        throw new Error(payload?.message || `HTTP ${res.status}`)
+      }
+
+      if (payload === null) {
+        if (rawResponse) {
+          throw new Error('响应解析失败')
+        }
+        return null
+      }
+
+      if (payload && payload.success === false) {
+        throw new Error(payload.message || '请求失败')
+      }
+
+      return rawResponse ? payload : payload?.data
+    }
   }
 
   function buildProxyURL(path, query) {
@@ -2541,16 +2809,24 @@
     return `sk-${key}`
   }
 
-  function formatTokenKeyDisplay(fullKey, isVisible) {
+  function formatTokenKeyDisplay(fullKey, isVisible, tokenId) {
     if (!fullKey) {
       return '<span class="token-key token-key-placeholder text-sub">-</span>'
     }
 
     if (!isVisible) {
-      return '<span class="token-key token-key-placeholder text-sub">已隐藏</span>'
+      // 默认显示接口返回的脱敏 key
+      return `<code class="mono token-key text-sub">${escapeHtml(fullKey)}</code>`
     }
 
-    return `<code class="mono token-key">${escapeHtml(fullKey)}</code>`
+    // 可见状态：优先使用缓存的完整 key
+    const cached = state.token.fullKeyCache.get(tokenId)
+    if (cached) {
+      return `<code class="mono token-key">${escapeHtml(cached)}</code>`
+    }
+
+    // 还没拿到完整 key，显示加载中
+    return '<span class="token-key text-sub">加载中…</span>'
   }
 
   function getTokenKeyToggleIcon(isVisible) {
@@ -2561,13 +2837,35 @@
     return '<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>'
   }
 
-  function toggleTokenKeyVisibility(tokenId) {
+  async function toggleTokenKeyVisibility(tokenId) {
     if (state.token.visibleKeyIds.has(tokenId)) {
       state.token.visibleKeyIds.delete(tokenId)
-    } else {
-      state.token.visibleKeyIds.add(tokenId)
+      renderTokenTable()
+      return
     }
 
+    state.token.visibleKeyIds.add(tokenId)
+
+    // 缓存中已有完整 key，直接渲染
+    if (state.token.fullKeyCache.has(tokenId)) {
+      renderTokenTable()
+      return
+    }
+
+    // 预加载未命中，按需获取
+    renderTokenTable()
+    try {
+      const fullKey = await fetchTokenFullKey(tokenId)
+      if (fullKey) {
+        state.token.fullKeyCache.set(tokenId, fullKey)
+      } else {
+        state.token.visibleKeyIds.delete(tokenId)
+        showAlert('无法获取完整 Key', 'warning')
+      }
+    } catch (err) {
+      state.token.visibleKeyIds.delete(tokenId)
+      showAlert('获取 Key 失败：' + (err.message || '未知错误'), 'error')
+    }
     renderTokenTable()
   }
 

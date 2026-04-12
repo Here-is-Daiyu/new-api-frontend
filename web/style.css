@@ -945,18 +945,83 @@ select.input-sm {
 
 #logFilterForm #logTypeSelect,
 #logFilterForm #logTokenNameInput,
-#logFilterForm #logModelSelect,
+#logFilterForm .awesomplete,
+#logFilterForm #logModelInput,
 #logFilterForm #logGroupSelect {
   min-width: 0;
 }
 
-#logFilterForm #logModelSelect .custom-select-dropdown {
-  max-height: 220px;
+#logFilterForm #logModelInput {
+  font-family: var(--font-mono);
 }
 
-#logFilterForm #logModelSelect .custom-select-trigger,
-#logFilterForm #logModelSelect .custom-select-option {
+/* awesomplete 自动补全样式 — 统一项目主题 */
+.awesomplete {
+  display: block !important;
+  min-width: 0;
+}
+
+.filter-grid .awesomplete > input {
+  width: 100%;
+}
+
+.awesomplete > ul {
+  z-index: 1000;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-main);
+  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-md);
+  margin-top: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  /* 禁用默认动画 */
+  transition: none !important;
+  transform: none !important;
+  opacity: 1 !important;
+}
+
+.awesomplete > ul[hidden] {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+.awesomplete > ul > li {
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
+  color: var(--color-text-main);
+  transition: background 0.1s;
+}
+
+.awesomplete > ul > li:hover {
+  background: var(--color-bg-input);
+}
+
+.awesomplete > ul > li[aria-selected='true'] {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.awesomplete mark {
+  background: transparent;
+  color: var(--color-primary);
+  font-weight: 600;
+  padding: 0;
+}
+
+.awesomplete > ul > li[aria-selected='true'] mark {
+  color: inherit;
+}
+
+/* 暗色主题微调 */
+html[data-theme='dark'] .awesomplete > ul {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+html[data-theme='dark'] .awesomplete mark {
+  color: var(--color-primary-light);
 }
 
 .filter-grid {
@@ -1060,7 +1125,9 @@ select.input-sm {
   flex: 1 1 auto;
   min-width: 0;
   max-width: 520px;
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .token-key-placeholder {
@@ -1206,6 +1273,66 @@ select.input-sm {
   border: 1px solid var(--color-danger);
   color: var(--color-danger);
   background: rgba(239, 68, 68, 0.05);
+}
+
+/* Model Cost Bar */
+.model-cost-bar {
+  margin-bottom: 1.5rem;
+  position: relative;
+}
+
+.cost-bar-container {
+  display: flex;
+  width: 100%;
+  height: 24px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.cost-segment {
+  min-width: 4px;
+  cursor: pointer;
+  transition: opacity 0.2s, filter 0.2s;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.cost-segment:hover {
+  opacity: 0.85;
+  filter: brightness(1.2);
+}
+
+.cost-segment:last-child {
+  border-right: none;
+}
+
+.cost-bar-empty {
+  text-align: center;
+  padding: 0.5rem;
+  color: var(--color-text-sub);
+  font-size: 0.875rem;
+  background: var(--color-bg-surface-subtle);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border);
+}
+
+.model-cost-tooltip {
+  position: fixed;
+  background: var(--color-bg-card);
+  color: var(--color-text-main);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1000;
+  transform: translate(-50%, 0);
+}
+
+.model-cost-tooltip.hidden {
+  display: none;
 }
 
 /* Modal */
@@ -1692,6 +1819,14 @@ html[data-theme='dark'] .alert-toast.error {
     font-size: 1.25rem;
   }
 
+  .model-cost-bar {
+    margin-bottom: 1rem;
+  }
+
+  .cost-bar-container {
+    height: 20px;
+  }
+
   .modern-table {
     font-size: 0.8125rem;
   }
@@ -2169,6 +2304,14 @@ html[data-theme='dark'] .alert-toast.error {
 
   .stat-value {
     font-size: 1.15rem;
+  }
+
+  .model-cost-bar {
+    margin-bottom: 1rem;
+  }
+
+  .cost-bar-container {
+    height: 18px;
   }
 
   .modern-table {

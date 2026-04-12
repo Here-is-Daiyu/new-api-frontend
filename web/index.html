@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, shrink-to-fit=no" />
     <title>New API 管理面板</title>
     <link rel="stylesheet" href="__STYLE_CSS_URL__" />
+    <link rel="stylesheet" href="/awesomplete.css" />
     <link id="dynamicFavicon" rel="icon" type="image/png" href="/favicon.ico" />
     <meta name="description" content="轻量级 New API 管理面板" />
   </head>
@@ -224,10 +225,13 @@
               </div>
             </div>
 
+            <div id="modelCostBar" class="model-cost-bar"></div>
+            <div id="modelCostTooltip" class="model-cost-tooltip hidden"></div>
+
             <form id="logFilterForm" class="filter-grid">
               <div id="logTypeSelect" class="custom-select custom-select-sm" aria-label="日志类型下拉"></div>
               <div id="logTokenNameInput" class="custom-select custom-select-sm" aria-label="日志 Token 下拉"></div>
-              <div id="logModelSelect" class="custom-select custom-select-sm" aria-label="日志模型下拉"></div>
+              <input id="logModelInput" class="input-sm" type="text" placeholder="模型筛选（输入搜索）" autocomplete="off" />
               <input id="logRequestIdInput" class="input-sm" type="text" placeholder="Req ID" />
               <input id="logStartInput" class="input-sm" type="text" placeholder="开始时间（如 2026-02-24 13:00:00）" />
               <input id="logEndInput" class="input-sm" type="text" placeholder="结束时间（如 2026-02-24 14:00:00）" />
@@ -353,6 +357,7 @@
       </div>
     </div>
 
+    <script src="/awesomplete.min.js"></script>
     <script src="__APP_JS_URL__"></script>
   </body>
 </html>
