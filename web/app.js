@@ -2295,6 +2295,10 @@
     const typeText = LOG_TYPE_TEXT[type] || '未知'
     const typeColor = LOG_TYPE_COLORS[type]
     const badgeClass = typeColor ? `badge badge-${typeColor}` : 'badge'
+    const cacheReadPct = calcCacheReadPercent(item)
+    const cacheAlpha = (cacheReadPct / 100) * 0.2
+    const cacheRowStyle = cacheAlpha > 0 ? ` style="--cache-alpha: ${cacheAlpha.toFixed(3)}"` : ''
+    const cacheRowTitle = cacheReadPct > 0 ? ` title="缓存命中 ${cacheReadPct.toFixed(1)}%"` : ''
 
     const modelName = escapeHtml(String(item.model_name || '-'))
     const tokenName = escapeHtml(String(item.token_name || '-'))
@@ -2338,7 +2342,7 @@
     }
 
     return `
-      <tr class="log-row${isErrorLog ? ' log-row-error' : ''}">
+      <tr class="log-row${isErrorLog ? ' log-row-error' : ''}"${cacheRowStyle}${cacheRowTitle}>
         <td class="log-cell log-cell-time"><div class="text-sub log-time-text">${escapeHtml(createdAt)}</div></td>
         <td class="log-cell log-cell-type"><span class="${badgeClass}">${escapeHtml(typeText)}</span></td>
         <td class="log-cell log-cell-model"><span class="mobile-inline-label">模型</span><code class="mono log-main-text">${modelName}</code></td>
@@ -2395,6 +2399,33 @@
     }
 
     return `${(tokens / useTimeSeconds).toFixed(2)} token/s`
+  }
+
+  function calcCacheReadPercent(item) {
+    const other = parseLogOther(item?.other)
+    const cacheTokens = toFiniteNumber(other?.cache_tokens)
+    if (cacheTokens === null || cacheTokens <= 0) {
+      return 0
+    }
+
+    const promptTokens = toFiniteNumber(item?.prompt_tokens)
+    const promptTokenCount = promptTokens !== null && promptTokens > 0 ? promptTokens : 0
+
+    // Claude 的 prompt_tokens 不包含缓存读入量，其他模型则已包含
+    const totalPromptTokens = other?.usage_semantic === 'anthropic'
+      ? promptTokenCount + cacheTokens
+      : promptTokenCount
+
+    if (totalPromptTokens <= 0) {
+      return 0
+    }
+
+    const cacheReadPct = (cacheTokens / totalPromptTokens) * 100
+    if (!Number.isFinite(cacheReadPct)) {
+      return 0
+    }
+
+    return Math.min(100, Math.max(0, cacheReadPct))
   }
 
   function extractFirstTokenMs(logItem) {

@@ -2,6 +2,7 @@
   --color-primary: #3b82f6;
   --color-primary-hover: #2563eb;
   --color-primary-light: rgba(59, 130, 246, 0.1);
+  --cache-tint-rgb: 59, 130, 246;
 
   --color-text-main: #e2e8f0;
   --color-text-sub: #94a3b8;
@@ -39,6 +40,7 @@
 }
 
 html[data-theme='light'] {
+  --cache-tint-rgb: 37, 99, 235;
   --color-text-main: #1e293b;
   --color-text-sub: #475569;
   --color-text-muted: #94a3b8;
@@ -1094,6 +1096,11 @@ html[data-theme='dark'] .awesomplete mark {
 
 .modern-table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.log-row {
+  background-color: rgba(var(--cache-tint-rgb), var(--cache-alpha, 0));
+  transition: background-color 0.2s ease;
 }
 
 .modern-table tbody tr:hover {
