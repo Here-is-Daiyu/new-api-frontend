@@ -1056,6 +1056,7 @@ html[data-theme='dark'] .awesomplete mark {
 .log-table-wrap {
   max-height: 520px;
   overflow: auto;
+  contain: layout style;
 }
 
 .log-table-wrap .modern-table {
@@ -1101,6 +1102,8 @@ html[data-theme='dark'] .awesomplete mark {
 .log-row {
   background-color: rgba(var(--cache-tint-rgb), var(--cache-alpha, 0));
   transition: background-color 0.2s ease;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 40px;
 }
 
 .modern-table tbody tr:hover {
@@ -1339,6 +1342,25 @@ html[data-theme='dark'] .awesomplete mark {
 }
 
 .model-cost-tooltip.hidden {
+  display: none;
+}
+
+.log-cache-tooltip {
+  position: fixed;
+  background: var(--color-bg-card);
+  color: var(--color-text-main);
+  padding: 0.35rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1000;
+  transform: translateX(-50%);
+}
+
+.log-cache-tooltip.hidden {
   display: none;
 }
 
@@ -2098,8 +2120,13 @@ html[data-theme='dark'] .alert-toast.error {
 
   #logPanel .modern-table tbody .log-cell-first-token,
   #logPanel .modern-table tbody .log-cell-rate,
+  #logPanel .modern-table tbody .log-cell-channel,
   #logPanel .modern-table tbody .log-cell-detail:not(.is-error) {
     display: none !important;
+  }
+
+  #logPanel .log-th-channel {
+    display: none;
   }
 
   #logPanel .mobile-inline-label {
@@ -2513,12 +2540,17 @@ html[data-theme='dark'] .alert-toast.error {
   border: 1px solid var(--color-border);
   font-size: 13px;
   line-height: 1.4;
+  cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 
 .model-tag:hover {
   background: var(--color-bg-input);
   border-color: var(--color-primary);
+}
+
+.model-tag:active {
+  transform: scale(0.96);
 }
 
 .model-tag code {

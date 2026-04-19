@@ -64,9 +64,11 @@
   const LOG_PAGE_SIZE = 200
   const QUOTA_DISPLAY_DIVISOR = 500000
   const LOG_AUTO_REFRESH_INTERVAL = 2000
+  const LOG_AUTO_REFRESH_MAX_ITEMS = 1000
   const LOG_MODEL_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6']
 
   let logAutoRefreshTimer = null
+  let logScrollRAFPending = false
 
   const ROLE_TEXT = {
     0: '访客',
@@ -230,6 +232,7 @@
     dom.statTpm = document.getElementById('statTpm')
     dom.modelCostBar = document.getElementById('modelCostBar')
     dom.modelCostTooltip = document.getElementById('modelCostTooltip')
+    dom.logCacheTooltip = document.getElementById('logCacheTooltip')
 
     dom.tokenModal = document.getElementById('tokenModal')
     dom.tokenModalTitle = document.getElementById('tokenModalTitle')
@@ -294,6 +297,25 @@
         await refreshModels(true, { silent: true })
       }).catch(() => {})
     })
+    dom.modelListContainer.addEventListener('click', (event) => {
+      const tag = event.target.closest('.model-tag[data-model-name]')
+      if (!tag) {
+        return
+      }
+
+      const modelName = tag.dataset.modelName
+      if (!modelName) {
+        return
+      }
+
+      void copyText(modelName)
+        .then(() => {
+          showAlert(`已复制模型名: ${modelName}`, 'success')
+        })
+        .catch(() => {
+          showAlert('复制失败', 'error')
+        })
+    })
     dom.tokenModelSuggestBtn.addEventListener('click', handleTokenModelSuggest)
     setCustomSelectOnChange(dom.tokenStatusSelect, () => {
       syncSelectTitle(dom.tokenStatusSelect)
@@ -321,7 +343,37 @@
     setCustomSelectOnChange(dom.logGroupSelect, () => {
       syncSelectTitle(dom.logGroupSelect)
     })
-    dom.logTableWrap.addEventListener('scroll', handleLogTableScroll)
+    dom.logTableWrap.addEventListener('scroll', () => {
+      if (logScrollRAFPending) {
+        return
+      }
+
+      logScrollRAFPending = true
+      requestAnimationFrame(() => {
+        logScrollRAFPending = false
+        handleLogTableScroll()
+      })
+    })
+    dom.logTableBody.addEventListener('mouseenter', (e) => {
+      const row = e.target.closest('.log-row[data-cache-pct]')
+      if (row) {
+        showLogCacheTooltip(row, e)
+      }
+    }, true)
+    dom.logTableBody.addEventListener('mouseleave', (e) => {
+      const row = e.target.closest('.log-row[data-cache-pct]')
+      if (row) {
+        hideLogCacheTooltip()
+      }
+    }, true)
+    dom.logTableBody.addEventListener('mousemove', (e) => {
+      const row = e.target.closest('.log-row[data-cache-pct]')
+      if (row) {
+        showLogCacheTooltip(row, e)
+      } else {
+        hideLogCacheTooltip()
+      }
+    })
     dom.logLoadState.addEventListener('click', handleLogLoadStateClick)
     bindDatetimeAutoComplete(dom.logStartInput)
     bindDatetimeAutoComplete(dom.logEndInput)
@@ -466,10 +518,7 @@
     try {
       // 其余面板并行加载
       await Promise.allSettled([
-        (async () => {
-          await loadModelKeyOptions(false)
-          await refreshModels(false, { silent: true })
-        })(),
+        refreshModels(false, { silent: true }),
         ensureLogPanelInitialized(false)
       ])
     } catch {
@@ -1333,7 +1382,7 @@
         const name = typeof item === 'string' ? item : String(item?.id || '').trim()
         const ownedBy = typeof item === 'object' && item ? String(item.owned_by || '').trim() : ''
         const ownerHtml = ownedBy ? `<span class="model-tag-owner">${escapeHtml(ownedBy)}</span>` : ''
-        return `<div class="model-tag"><code>${escapeHtml(name)}</code>${ownerHtml}</div>`
+        return `<div class="model-tag" data-model-name="${escapeHtml(name)}"><code>${escapeHtml(name)}</code>${ownerHtml}</div>`
       })
       .join('')
   }
@@ -1837,7 +1886,7 @@
     const remainingPx =
       dom.logTableWrap.scrollHeight - dom.logTableWrap.scrollTop - dom.logTableWrap.clientHeight
 
-    const rowCount = dom.logTableBody.querySelectorAll('tr').length
+    const rowCount = state.log.items.length
     const avgRowHeight = rowCount > 0 ? dom.logTableBody.scrollHeight / rowCount : 40
     const safeRowHeight = avgRowHeight > 0 ? avgRowHeight : 40
     const remainingRows = remainingPx / safeRowHeight
@@ -1998,6 +2047,12 @@
         }
         return
       }
+
+      if (state.log.items.length >= LOG_AUTO_REFRESH_MAX_ITEMS) {
+        stopLogAutoRefresh()
+        return
+      }
+
       void loadMoreLogs(false)
     }, LOG_AUTO_REFRESH_INTERVAL)
   }
@@ -2215,7 +2270,7 @@
       const percentageValue = toFiniteNumber(item?.percentage) || ((item.quota / totalQuota) * 100)
       const percentage = percentageValue.toFixed(1)
       const color = LOG_MODEL_COLORS[idx % LOG_MODEL_COLORS.length]
-      return `<div class="cost-segment" style="width: ${percentage}%; background-color: ${color};" title="${escapeHtml(item.model)}: ${percentage}%" data-model="${escapeHtml(item.model)}" data-quota="${item.quota}" data-percentage="${percentage}"></div>`
+      return `<div class="cost-segment" style="width: ${percentage}%; background-color: ${color};" data-model="${escapeHtml(item.model)}" data-quota="${item.quota}" data-percentage="${percentage}"></div>`
     })
 
     dom.modelCostBar.innerHTML = `<div class="cost-bar-container">${segments.join('')}</div>`
@@ -2254,6 +2309,27 @@
     }
   }
 
+  function showLogCacheTooltip(row, e) {
+    if (!dom.logCacheTooltip) return
+
+    const pct = row.dataset.cachePct
+    if (!pct) return
+
+    dom.logCacheTooltip.textContent = '缓存命中 ' + pct + '%'
+    dom.logCacheTooltip.classList.remove('hidden')
+
+    const x = e.clientX
+    const y = e.clientY
+    dom.logCacheTooltip.style.left = x + 'px'
+    dom.logCacheTooltip.style.top = (y - 36) + 'px'
+  }
+
+  function hideLogCacheTooltip() {
+    if (dom.logCacheTooltip) {
+      dom.logCacheTooltip.classList.add('hidden')
+    }
+  }
+
   function formatQuotaDisplayValue(value) {
     const quota = toFiniteNumber(value)
     if (quota === null || quota < 0) {
@@ -2269,7 +2345,7 @@
 
     if (!append) {
       if (!state.log.items.length) {
-        dom.logTableBody.innerHTML = '<tr class="table-placeholder-row"><td colspan="10" class="text-center">暂无数据</td></tr>'
+        dom.logTableBody.innerHTML = '<tr class="table-placeholder-row"><td colspan="11" class="text-center">暂无数据</td></tr>'
         return
       }
 
@@ -2281,7 +2357,7 @@
       return
     }
 
-    const placeholderRow = dom.logTableBody.querySelector('td[colspan="10"]')
+    const placeholderRow = dom.logTableBody.querySelector('td[colspan="11"]')
     if (placeholderRow) {
       dom.logTableBody.innerHTML = ''
     }
@@ -2298,10 +2374,15 @@
     const cacheReadPct = calcCacheReadPercent(item)
     const cacheAlpha = (cacheReadPct / 100) * 0.2
     const cacheRowStyle = cacheAlpha > 0 ? ` style="--cache-alpha: ${cacheAlpha.toFixed(3)}"` : ''
-    const cacheRowTitle = cacheReadPct > 0 ? ` title="缓存命中 ${cacheReadPct.toFixed(1)}%"` : ''
+    const cacheRowData = cacheReadPct > 0 ? ` data-cache-pct="${cacheReadPct.toFixed(1)}"` : ''
 
     const modelName = escapeHtml(String(item.model_name || '-'))
     const tokenName = escapeHtml(String(item.token_name || '-'))
+    const channelId = toNonNegativeInt(item.channel, 0)
+    const otherData = parseLogOther(item.other)
+    const channelName = String(item.channel_name || otherData?.channel_name || '').trim()
+    const channelDisplay = channelName || (channelId ? String(channelId) : '-')
+    const channelTitle = channelName && channelId ? `${channelName} (#${channelId})` : (channelName || (channelId ? `#${channelId}` : ''))
     const promptTokens = toNonNegativeInt(item.prompt_tokens, 0)
     const completionTokens = toNonNegativeInt(item.completion_tokens, 0)
 
@@ -2342,11 +2423,12 @@
     }
 
     return `
-      <tr class="log-row${isErrorLog ? ' log-row-error' : ''}"${cacheRowStyle}${cacheRowTitle}>
+      <tr class="log-row${isErrorLog ? ' log-row-error' : ''}"${cacheRowStyle}${cacheRowData}>
         <td class="log-cell log-cell-time"><div class="text-sub log-time-text">${escapeHtml(createdAt)}</div></td>
         <td class="log-cell log-cell-type"><span class="${badgeClass}">${escapeHtml(typeText)}</span></td>
         <td class="log-cell log-cell-model"><span class="mobile-inline-label">模型</span><code class="mono log-main-text">${modelName}</code></td>
         <td class="log-cell log-cell-token"><span class="mobile-inline-label">Token</span><code class="mono log-main-text">${tokenName}</code></td>
+        <td class="log-cell log-cell-channel"${channelTitle ? ` title="${escapeHtml(channelTitle)}"` : ''}><span class="mobile-inline-label">渠道</span><span class="text-sub">${escapeHtml(channelDisplay)}</span></td>
         <td class="log-cell log-cell-prompt"><span class="mobile-inline-label">输入</span><strong class="log-metric-value">${promptTokens}</strong></td>
         <td class="log-cell log-cell-completion"><span class="mobile-inline-label">输出</span><strong class="log-metric-value">${completionTokens}</strong></td>
         <td class="log-cell log-cell-duration"><span class="mobile-inline-label">耗时</span><strong class="log-metric-value">${escapeHtml(useTimeText)}</strong></td>
