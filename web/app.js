@@ -127,7 +127,8 @@
         quota: 0,
         rpm: 0,
         tpm: 0,
-        modelBreakdown: []
+        modelBreakdown: [],
+        modelCountBreakdown: []
       },
       loaded: false,
       initPromise: null,
@@ -232,6 +233,8 @@
     dom.statTpm = document.getElementById('statTpm')
     dom.modelCostBar = document.getElementById('modelCostBar')
     dom.modelCostTooltip = document.getElementById('modelCostTooltip')
+    dom.modelCountBar = document.getElementById('modelCountBar')
+    dom.modelCountTooltip = document.getElementById('modelCountTooltip')
     dom.logCacheTooltip = document.getElementById('logCacheTooltip')
 
     dom.tokenModal = document.getElementById('tokenModal')
@@ -373,6 +376,23 @@
       } else {
         hideLogCacheTooltip()
       }
+    })
+    dom.logTableBody.addEventListener('click', (e) => {
+      const row = e.target.closest('.log-row[data-request-id]')
+      if (!row) {
+        return
+      }
+
+      const rid = row.dataset.requestId
+      if (!rid) {
+        return
+      }
+
+      void copyText(rid).then(() => {
+        showAlert('已复制 Request ID', 'success')
+      }).catch(() => {
+        showAlert('复制失败', 'error')
+      })
     })
     dom.logLoadState.addEventListener('click', handleLogLoadStateClick)
     bindDatetimeAutoComplete(dom.logStartInput)
@@ -2192,46 +2212,73 @@
       startTimestamp = nextStart
     }
 
-    return {
-      start_timestamp: startTimestamp,
-      end_timestamp: endTimestamp,
-      default_time: 'day'
-    }
+    return { startTimestamp, endTimestamp }
   }
 
   async function loadModelCostBreakdown(requestVersion = state.log.requestVersion) {
-    const query = buildModelCostBreakdownQuery({ ...state.log.filters })
+    const { startTimestamp, endTimestamp } = buildModelCostBreakdownQuery({ ...state.log.filters })
+    const MAX_SPAN = 2592000
 
     try {
-      const data = await apiRequest('/api/data/self', { query })
-      if (requestVersion !== state.log.requestVersion) {
-        return state.log.stat.modelBreakdown
+      const allItems = []
+      let segEnd = endTimestamp
+
+      while (segEnd > startTimestamp) {
+        const segStart = Math.max(startTimestamp, segEnd - MAX_SPAN)
+        const data = await apiRequest('/api/data/self', {
+          query: {
+            start_timestamp: segStart,
+            end_timestamp: segEnd,
+            default_time: 'day'
+          }
+        })
+        if (requestVersion !== state.log.requestVersion) {
+          return state.log.stat.modelBreakdown
+        }
+        const items = Array.isArray(data) ? data : []
+        allItems.push(...items)
+        segEnd = segStart
       }
 
-      const items = Array.isArray(data) ? data : []
       const quotaByModel = new Map()
+      const countByModel = new Map()
 
-      items.forEach((item) => {
+      allItems.forEach((item) => {
         const model = String(item?.model_name || '').trim() || '未知模型'
         const quota = toFiniteNumber(item?.quota)
-        if (quota === null || quota <= 0) {
-          return
+        const count = toFiniteNumber(item?.count)
+        if (quota !== null && quota > 0) {
+          quotaByModel.set(model, (quotaByModel.get(model) || 0) + quota)
         }
-        quotaByModel.set(model, (quotaByModel.get(model) || 0) + quota)
+        if (count !== null && count > 0) {
+          countByModel.set(model, (countByModel.get(model) || 0) + count)
+        }
       })
 
-      const entries = Array.from(quotaByModel.entries()).sort((a, b) => b[1] - a[1])
-      const totalQuota = entries.reduce((sum, [, quota]) => sum + quota, 0)
+      const quotaEntries = Array.from(quotaByModel.entries()).sort((a, b) => b[1] - a[1])
+      const totalQuota = quotaEntries.reduce((sum, [, quota]) => sum + quota, 0)
       const breakdown = totalQuota > 0
-        ? entries.map(([model, quota]) => ({
+        ? quotaEntries.map(([model, quota]) => ({
           model,
           quota,
           percentage: (quota / totalQuota) * 100
         }))
         : []
 
+      const countEntries = Array.from(countByModel.entries()).sort((a, b) => b[1] - a[1])
+      const totalCount = countEntries.reduce((sum, [, count]) => sum + count, 0)
+      const countBreakdown = totalCount > 0
+        ? countEntries.map(([model, count]) => ({
+          model,
+          count: count,
+          percentage: (count / totalCount) * 100
+        }))
+        : []
+
       state.log.stat.modelBreakdown = breakdown
+      state.log.stat.modelCountBreakdown = countBreakdown
       renderModelCostBar(breakdown)
+      renderModelCountBar(countBreakdown)
       return breakdown
     } catch (err) {
       if (requestVersion !== state.log.requestVersion) {
@@ -2240,7 +2287,9 @@
 
       console.warn('模型消耗比例加载失败', err)
       state.log.stat.modelBreakdown = []
+      state.log.stat.modelCountBreakdown = []
       renderModelCostBar([])
+      renderModelCountBar([])
       return []
     }
   }
@@ -2306,6 +2355,64 @@
   function hideCostBarTooltip() {
     if (dom.modelCostTooltip) {
       dom.modelCostTooltip.classList.add('hidden')
+    }
+  }
+
+  function renderModelCountBar(breakdown) {
+    if (!dom.modelCountBar) {
+      return
+    }
+
+    hideCountBarTooltip()
+
+    const safeBreakdown = Array.isArray(breakdown) ? breakdown : []
+    const totalCount = safeBreakdown.reduce((sum, item) => sum + (toFiniteNumber(item?.count) || 0), 0)
+
+    if (!totalCount || !safeBreakdown.length) {
+      dom.modelCountBar.innerHTML = '<div class="cost-bar-empty">暂无数据</div>'
+      return
+    }
+
+    const segments = safeBreakdown.map((item, idx) => {
+      const percentageValue = toFiniteNumber(item?.percentage) || ((item.count / totalCount) * 100)
+      const percentage = percentageValue.toFixed(1)
+      const color = LOG_MODEL_COLORS[idx % LOG_MODEL_COLORS.length]
+      return `<div class="cost-segment" style="width: ${percentage}%; background-color: ${color};" data-model="${escapeHtml(item.model)}" data-count="${item.count}" data-percentage="${percentage}"></div>`
+    })
+
+    dom.modelCountBar.innerHTML = `<div class="cost-bar-container">${segments.join('')}</div>`
+
+    const segments_el = dom.modelCountBar.querySelectorAll('.cost-segment')
+    segments_el.forEach((seg) => {
+      seg.addEventListener('mouseenter', (e) => {
+        showCountBarTooltip(e.currentTarget || e.target)
+      })
+      seg.addEventListener('mouseleave', () => {
+        hideCountBarTooltip()
+      })
+    })
+  }
+
+  function showCountBarTooltip(element) {
+    if (!dom.modelCountTooltip) {
+      return
+    }
+
+    const model = element.dataset.model || '-'
+    const percentage = element.dataset.percentage || '0'
+    const count = toNonNegativeInt(element.dataset.count, 0)
+
+    dom.modelCountTooltip.innerHTML = `<strong>${escapeHtml(model)}</strong><br/>占比: ${percentage}%<br/>调用: ${count.toLocaleString()} 次`
+    dom.modelCountTooltip.classList.remove('hidden')
+
+    const rect = element.getBoundingClientRect()
+    dom.modelCountTooltip.style.left = (rect.left + rect.width / 2) + 'px'
+    dom.modelCountTooltip.style.top = (rect.top - 45) + 'px'
+  }
+
+  function hideCountBarTooltip() {
+    if (dom.modelCountTooltip) {
+      dom.modelCountTooltip.classList.add('hidden')
     }
   }
 
@@ -2422,8 +2529,10 @@
       }
     }
 
+    const requestId = String(item.request_id || '').trim()
+
     return `
-      <tr class="log-row${isErrorLog ? ' log-row-error' : ''}"${cacheRowStyle}${cacheRowData}>
+      <tr class="log-row${isErrorLog ? ' log-row-error' : ''}"${cacheRowStyle}${cacheRowData} data-request-id="${escapeHtml(requestId)}" title="${requestId ? '点击复制 Request ID' : ''}">
         <td class="log-cell log-cell-time"><div class="text-sub log-time-text">${escapeHtml(createdAt)}</div></td>
         <td class="log-cell log-cell-type"><span class="${badgeClass}">${escapeHtml(typeText)}</span></td>
         <td class="log-cell log-cell-model"><span class="mobile-inline-label">模型</span><code class="mono log-main-text">${modelName}</code></td>
