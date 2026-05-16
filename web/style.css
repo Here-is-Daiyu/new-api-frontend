@@ -895,6 +895,11 @@ select.input-sm {
   transform: rotate(-135deg) translate(-1px, -1px);
 }
 
+.custom-select.dropdown-up .custom-select-dropdown {
+  top: auto;
+  bottom: calc(100% + 0.35rem);
+}
+
 .custom-select-dropdown {
   position: absolute;
   left: 0;
@@ -1139,7 +1144,7 @@ html[data-theme='dark'] .awesomplete mark {
   display: inline-block;
   flex: 1 1 auto;
   min-width: 0;
-  max-width: 520px;
+  max-width: 650px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1947,7 +1952,7 @@ html[data-theme='dark'] .alert-toast.error {
       'name status'
       'id id'
       'key key'
-      'quota expired'
+      'group expired'
       'actions actions';
   }
 
@@ -1971,8 +1976,8 @@ html[data-theme='dark'] .alert-toast.error {
     grid-area: key;
   }
 
-  #tokenPanel .token-cell-quota {
-    grid-area: quota;
+  #tokenPanel .token-cell-group {
+    grid-area: group;
   }
 
   #tokenPanel .token-cell-expired {
@@ -2506,7 +2511,7 @@ html[data-theme='dark'] .alert-toast.error {
       'name status'
       'id id'
       'key key'
-      'quota quota'
+      'group group'
       'expired expired'
       'actions actions';
   }

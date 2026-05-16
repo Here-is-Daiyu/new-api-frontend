@@ -85,6 +85,10 @@
     user: null,
     alertTimer: null,
     alertFadeTimer: null,
+    cache: {
+      userModels: { data: null, ts: 0 },
+      userGroups: { data: null, ts: 0 }
+    },
     token: {
       page: 1,
       pageSize: 10,
@@ -92,7 +96,9 @@
       keyword: '',
       items: [],
       visibleKeyIds: new Set(),
-      fullKeyCache: new Map()
+      fullKeyCache: new Map(),
+      groupModelsCache: null,
+      groupModelsCacheTs: 0
     },
     model: {
       items: [],
@@ -322,6 +328,9 @@
     dom.tokenModelSuggestBtn.addEventListener('click', handleTokenModelSuggest)
     setCustomSelectOnChange(dom.tokenStatusSelect, () => {
       syncSelectTitle(dom.tokenStatusSelect)
+    })
+    setCustomSelectOnChange(dom.tokenGroupSelect, () => {
+      closeTokenModelSuggestDropdown()
     })
     setCustomSelectOnChange(dom.tokenPageSizeSelect, () => {
       syncSelectTitle(dom.tokenPageSizeSelect)
@@ -856,7 +865,9 @@
       if (!id || state.token.fullKeyCache.has(id)) continue
       try {
         const key = await fetchTokenFullKey(id)
-        if (key) state.token.fullKeyCache.set(id, key)
+        if (key) {
+          state.token.fullKeyCache.set(id, key)
+        }
       } catch {
         // 静默忽略，429 会在 apiRequest 层自动重试
       }
@@ -887,9 +898,9 @@
 
         const statusText = `<span class="${statusClass}">${statusLabel}</span>`
 
-        const quotaText = token.unlimited_quota
-          ? '<span class="badge-count">无限</span>'
-          : `<span class="token-quota-value">${toNonNegativeInt(token.remain_quota, 0)}</span>`
+        const groupText = token.group
+          ? `<span>${escapeHtml(String(token.group))}</span>`
+          : '<span class="text-sub">默认</span>'
 
         const expiredText = formatExpiredTime(token.expired_time)
         const toggleStatusText = token.status === 1 ? '禁用' : '启用'
@@ -912,7 +923,7 @@
               </span>
             </td>
             <td class="token-cell token-cell-status">${statusText}</td>
-            <td class="token-cell token-cell-quota token-secondary-cell" data-mobile-label="额度">${quotaText}</td>
+            <td class="token-cell token-cell-group token-secondary-cell" data-mobile-label="分组">${groupText}</td>
             <td class="token-cell token-cell-expired token-secondary-cell text-sub" data-mobile-label="过期时间">${escapeHtml(expiredText)}</td>
             <td class="token-cell token-cell-actions token-actions-cell">
               <div class="inline-actions">
@@ -1018,7 +1029,6 @@
     setCustomSelectValue(dom.tokenStatusSelect, '1', { silent: true })
     dom.tokenQuotaInput.value = '0'
     dom.tokenExpireInput.value = ''
-    setCustomSelectValue(dom.tokenGroupSelect, '', { silent: true })
     dom.tokenModelLimitsInput.value = ''
     dom.tokenAllowIpsInput.value = ''
     dom.tokenModelLimitEnabledInput.checked = false
@@ -1026,11 +1036,13 @@
     dom.tokenCrossGroupRetryInput.checked = false
     closeTokenModelSuggestDropdown()
     syncTokenQuotaInputState()
-    loadTokenGroupOptions()
+    loadTokenGroupOptions().then(() => {
+      setCustomSelectValue(dom.tokenGroupSelect, '', { silent: true })
+    })
     dom.tokenModal.classList.remove('hidden')
   }
 
-  function openEditTokenModal(tokenId) {
+  async function openEditTokenModal(tokenId) {
     const token = getTokenById(tokenId)
     if (!token) {
       showAlert('未找到对应 Token', 'warning')
@@ -1049,11 +1061,11 @@
     dom.tokenModelLimitEnabledInput.checked = Boolean(token.model_limits_enabled)
     dom.tokenModelLimitsInput.value = token.model_limits || ''
     dom.tokenAllowIpsInput.value = token.allow_ips || ''
-    setCustomSelectValue(dom.tokenGroupSelect, token.group || '', { silent: true })
     dom.tokenCrossGroupRetryInput.checked = Boolean(token.cross_group_retry)
     closeTokenModelSuggestDropdown()
     syncTokenQuotaInputState()
-    loadTokenGroupOptions()
+    await loadTokenGroupOptions()
+    setCustomSelectValue(dom.tokenGroupSelect, token.group || '', { silent: true })
     dom.tokenModal.classList.remove('hidden')
   }
 
@@ -1249,7 +1261,15 @@
                 return null
               }
 
-              const key = await fetchTokenFullKey(tokenId)
+              let key
+              if (state.token.fullKeyCache.has(tokenId)) {
+                key = state.token.fullKeyCache.get(tokenId)
+              } else {
+                key = await fetchTokenFullKey(tokenId)
+                if (key) {
+                  state.token.fullKeyCache.set(tokenId, key)
+                }
+              }
               if (!key) {
                 return null
               }
@@ -1408,19 +1428,79 @@
   }
 
   async function fetchUserModels() {
+    const now = Date.now()
+    if (state.cache.userModels.data && (now - state.cache.userModels.ts) < 5 * 60 * 1000) {
+      return state.cache.userModels.data
+    }
     try {
       const data = await apiRequest('/api/user/models')
-      return Array.isArray(data)
+      const models = Array.isArray(data)
         ? data.map((m) => String(m || '').trim()).filter(Boolean)
         : []
+      state.cache.userModels.data = models
+      state.cache.userModels.ts = now
+      return models
     } catch {
-      return []
+      return state.cache.userModels.data || []
     }
+  }
+
+  async function fetchGroupModelsMap() {
+    const CACHE_TTL = 5 * 60 * 1000
+    const now = Date.now()
+    if (state.token.groupModelsCache && (now - state.token.groupModelsCacheTs) < CACHE_TTL) {
+      return state.token.groupModelsCache
+    }
+
+    try {
+      const result = await apiRequest('/api/pricing')
+      const entries = Array.isArray(result) ? result : []
+      const map = new Map()
+
+      for (const entry of entries) {
+        const modelName = String(entry?.model_name || '').trim()
+        if (!modelName) continue
+        const enableGroups = Array.isArray(entry?.enable_groups) ? entry.enable_groups : []
+        for (const group of enableGroups) {
+          const groupName = String(group || '').trim()
+          if (!groupName) continue
+          if (!map.has(groupName)) {
+            map.set(groupName, [])
+          }
+          const list = map.get(groupName)
+          if (!list.includes(modelName)) {
+            list.push(modelName)
+          }
+        }
+      }
+
+      // 排序每个分组的模型列表
+      for (const list of map.values()) {
+        list.sort((a, b) => a.localeCompare(b))
+      }
+
+      state.token.groupModelsCache = map
+      state.token.groupModelsCacheTs = now
+      return map
+    } catch {
+      return state.token.groupModelsCache || new Map()
+    }
+  }
+
+  async function fetchCachedUserGroups() {
+    const now = Date.now()
+    if (state.cache.userGroups.data && (now - state.cache.userGroups.ts) < 5 * 60 * 1000) {
+      return state.cache.userGroups.data
+    }
+    const data = await apiRequest('/api/user/self/groups')
+    state.cache.userGroups.data = data
+    state.cache.userGroups.ts = now
+    return data
   }
 
   async function loadTokenGroupOptions() {
     try {
-      const data = await apiRequest('/api/user/self/groups')
+      const data = await fetchCachedUserGroups()
       const options = [{ value: '', label: '留空（使用默认分组）', title: '留空（使用默认分组）' }]
 
       if (data && typeof data === 'object' && !Array.isArray(data)) {
@@ -1467,12 +1547,32 @@
     dropdown.innerHTML = '<div class="model-suggest-loading">加载可用模型中...</div>'
     dropdown.classList.remove('hidden')
 
-    fetchUserModels().then((models) => {
+    const selectedGroup = getCustomSelectValue(dom.tokenGroupSelect).trim()
+
+    if (!selectedGroup) {
+      // 没有选择分组：显示全部可用模型
+      fetchUserModels().then((models) => {
+        if (!models.length) {
+          dropdown.innerHTML = '<div class="model-suggest-loading">暂无可用模型</div>'
+          return
+        }
+        renderTokenModelSuggestDropdown(models)
+      })
+      return
+    }
+
+    // 选择了分组：从 pricing 映射中取该分组的模型
+    fetchGroupModelsMap().then((groupMap) => {
+      const groupModels = groupMap.get(selectedGroup) || []
+      // 合并 "all" 分组的模型（"all" 分组表示全部分组可用）
+      const allModels = groupMap.get('all') || []
+      const combined = new Set([...groupModels, ...allModels])
+      const models = [...combined].sort((a, b) => a.localeCompare(b))
+
       if (!models.length) {
-        dropdown.innerHTML = '<div class="model-suggest-loading">暂无可用模型</div>'
+        dropdown.innerHTML = '<div class="model-suggest-loading">该分组暂无可用模型</div>'
         return
       }
-
       renderTokenModelSuggestDropdown(models)
     })
   }
@@ -1831,7 +1931,7 @@
   }
 
   async function fetchLogGroupOptionsFromBaseURL() {
-    const data = await apiRequest('/api/user/self/groups')
+    const data = await fetchCachedUserGroups()
     return extractGroupNamesFromPayload(data)
   }
 
@@ -3036,19 +3136,46 @@
       return '<span class="token-key token-key-placeholder text-sub">-</span>'
     }
 
+    const maskLength = 51
+    const cached = state.token.fullKeyCache.get(tokenId) || ''
+
     if (!isVisible) {
-      // 默认显示接口返回的脱敏 key
-      return `<code class="mono token-key text-sub">${escapeHtml(fullKey)}</code>`
+      // 隐藏态：始终生成 51 字符的等长掩码
+      const mask = buildFixedLengthMask(fullKey, maskLength)
+      return `<code class="mono token-key text-sub">${escapeHtml(mask)}</code>`
     }
 
     // 可见状态：优先使用缓存的完整 key
-    const cached = state.token.fullKeyCache.get(tokenId)
     if (cached) {
       return `<code class="mono token-key">${escapeHtml(cached)}</code>`
     }
 
-    // 还没拿到完整 key，显示加载中
-    return '<span class="token-key text-sub">加载中…</span>'
+    // 还没拿到完整 key 但要显示：继续用掩码 + 半透明 loading 风格
+    const mask = buildFixedLengthMask(fullKey, maskLength)
+    return `<code class="mono token-key" style="opacity:0.6">${escapeHtml(mask)}</code>`
+  }
+
+  function buildFixedLengthMask(maskedKey, targetLength) {
+    const key = String(maskedKey || '')
+
+    // 找到脱敏 key 中 * 的起止位置，提取前后缀
+    const firstStar = key.indexOf('*')
+    const lastStar = key.lastIndexOf('*')
+
+    if (firstStar >= 0 && lastStar >= 0) {
+      const prefix = key.substring(0, firstStar)
+      const suffix = key.substring(lastStar + 1)
+      const starsNeeded = targetLength - prefix.length - suffix.length
+      if (starsNeeded > 0) {
+        return prefix + '*'.repeat(starsNeeded) + suffix
+      }
+    }
+
+    // Fallback：整体补足到目标长度
+    if (key.length < targetLength) {
+      return key.padEnd(targetLength, '*')
+    }
+    return key.substring(0, targetLength)
   }
 
   function getTokenKeyToggleIcon(isVisible) {
@@ -3311,6 +3438,33 @@
     instance.root.classList.add('open')
     instance.trigger.setAttribute('aria-expanded', 'true')
     instance.dropdown.classList.remove('hidden')
+
+    // 检测下方空间（优先使用最近的可滚动祖先容器的边界）
+    const triggerRect = instance.trigger.getBoundingClientRect()
+    const dropdownHeight = instance.dropdown.scrollHeight || 260
+    const scrollParent = findScrollParent(selectRoot)
+    const parentBottom = scrollParent ? scrollParent.getBoundingClientRect().bottom : window.innerHeight
+    const spaceBelow = parentBottom - triggerRect.bottom
+    const spaceAbove = triggerRect.top
+
+    if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+      instance.root.classList.add('dropdown-up')
+    } else {
+      instance.root.classList.remove('dropdown-up')
+    }
+  }
+
+  function findScrollParent(el) {
+    let parent = el?.parentElement
+    while (parent) {
+      const style = window.getComputedStyle(parent)
+      const overflowY = style.overflowY
+      if (overflowY === 'auto' || overflowY === 'scroll') {
+        return parent
+      }
+      parent = parent.parentElement
+    }
+    return null
   }
 
   function closeCustomSelect(selectRoot) {
@@ -3321,6 +3475,7 @@
 
     instance.isOpen = false
     instance.root.classList.remove('open')
+    instance.root.classList.remove('dropdown-up')
     instance.trigger.setAttribute('aria-expanded', 'false')
     instance.dropdown.classList.add('hidden')
   }
